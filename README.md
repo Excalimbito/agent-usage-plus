@@ -5,6 +5,12 @@
 A fork of Omarchy's built-in `omarchy.agents` bar widget (Omarchy 4.0.0-1,
 plugin version 1.0.0), published standalone so it can evolve independently.
 
+![Claude Code tab](preview.png)
+![Codex tab](preview-codex.png)
+
+Codex currently reports only a weekly limit (no session window), so its tab
+shows a single meter instead of the session+weekly pair Claude gets.
+
 Changes from the built-in version:
 
 - Panel opens on click only (the stock widget also opened on hover; some
