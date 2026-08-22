@@ -33,6 +33,12 @@ To pull in upstream fixes later, diff this against
 port over anything relevant by hand — Omarchy ships that plugin inside its
 own monorepo, so there's no upstream repo to `git pull` from directly.
 
+## Credit
+
+Forked from the `omarchy.agents` plugin bundled with
+[Omarchy](https://github.com/basecamp/omarchy) by Basecamp (MIT-licensed).
+See [LICENSE](LICENSE) for this fork's copyright notice.
+
 ## Install
 
 ```bash
@@ -42,6 +48,18 @@ omarchy plugin add https://github.com/viganogabriele/agent-usage-plus.git --enab
 That clones the plugin into
 `~/.config/omarchy/plugins/io.github.viganogabriele.agent-usage-plus/`,
 validates the manifest, and places the widget on the bar.
+
+## Update
+
+```bash
+omarchy plugin update io.github.viganogabriele.agent-usage-plus
+```
+
+## Uninstall
+
+```bash
+omarchy plugin remove io.github.viganogabriele.agent-usage-plus
+```
 
 ## About
 
