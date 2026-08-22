@@ -12,8 +12,7 @@ right in the bar, instead of the stock version's single icon:
 
 Click either one to open its panel:
 
-![Claude Code tab](preview.png)
-![Codex tab](preview-codex.png)
+<img src="preview.png" alt="Claude Code tab" width="300"> <img src="preview-codex.png" alt="Codex tab" width="300">
 
 Codex currently reports only a weekly limit (no session window), so its tab
 shows a single meter instead of the session+weekly pair Claude gets.
@@ -91,8 +90,9 @@ on its refresh timer and whenever you ask for a refresh, and picks up any
 record that lands in the directory regardless of who wrote it.
 
 Adding an agent therefore never touches this plugin: ship a collector that
-prints the record contract (see the `claude` and `codex` collectors in
-`bin/`), and the panel gains a tab. An `assets/<id>.svg` mark is optional —
+prints the record contract (see Omarchy's own `omarchy-agent-usage-claude`
+and `omarchy-agent-usage-codex`, at `/usr/share/omarchy/bin/` — they aren't
+part of this repo), and the panel gains a tab. An `assets/<id>.svg` mark is optional —
 with an `assets/<id>-light.svg` twin if the mark needs a dark variant for
 light surfaces — and the bar glyph stands in when there is none.
 
