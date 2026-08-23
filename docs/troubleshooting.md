@@ -1,0 +1,63 @@
+# Troubleshooting
+
+The panel renders the latest usage record written by each collector. It does not invent limits or hide a collector failure, so the message shown in a provider tab is the useful place to start.
+
+## I see an auth or endpoint card
+
+The coloured card shows the provider status in its heading and the collector's next step below it. It is intentionally not a generic plugin error.
+
+- **Claude:** live session/weekly limits need a signed-in `claude` CLI. Sign in again, or check `CLAUDE_CONFIG_DIR` when using a non-default Claude configuration. Local transcript-derived token statistics can still appear without live limits.
+- **Codex:** limits require the Codex app-server RPC. Confirm Codex itself can reach the app-server and that its local configuration (`CODEX_HOME`, when set) is the one you expect. Local session statistics can remain available while the endpoint is down.
+- **Fireworks:** check `FIREWORKS_API_KEY` and `FIREWORKS_ACCOUNT_ID`, then the fallback credentials in `~/.fireworks/auth.ini` or OpenCode's auth file. The exact collector help text identifies which credential was not detected.
+
+For another provider, follow the card's collector-supplied help text. A collector should use the `auth-missing` and `endpoint-down` conventions in [collector-contract.md](collector-contract.md), so its panel state names both the problem and how to resolve it.
+
+## A provider is missing
+
+Check the three deliberately different visibility states:
+
+- `enabled: false` hides the provider everywhere and excludes it from refresh.
+- `enabled: true` with `showInBar: false` hides only its bar meter; it remains selectable in the panel.
+- `barMode: "primary"` and `"cycle"` intentionally show one bar meter, while the panel keeps every enabled provider.
+
+In `barMode: "all"`, more than three eligible providers are collapsed into a `+N` bar indicator to prevent the bar from growing without bound. Click it to open the complete provider switcher. A provider with no usage record yet is also absent until the next collector refresh produces usable data.
+
+If every known provider is disabled or hidden from the bar, the module glyph remains so Settings are still reachable. A completely new machine with no discovered usage record has no widget at all; that is the intentional empty state.
+
+## Fireworks has no balance
+
+Fireworks can report token usage without a prepaid balance. The live balance endpoint may be unavailable to API keys; in that case an estimate needs a `fundedAmount` in `~/.config/omarchy/agents/fireworks.json`:
+
+```json
+{
+  "accountId": "",
+  "fundedAmount": 20,
+  "fundedAt": "2026-07-01"
+}
+```
+
+Without that amount, the balance section is intentionally omitted rather than pretending the account is empty.
+
+## Cost estimate is absent or differs from a bill
+
+`EST. API COST` appears only when the collector supplies a `cost` block. It is a token-derived estimate at the collector's published API price list, not an invoice, subscription charge, tax calculation, or account balance. Check the selected provider and record timestamp before comparing it with a vendor bill; cached reads, non-token charges, or a changed price list can differ.
+
+## The panel looks unchanged after editing QML
+
+Quickshell caches compiled plugin components by URL. A plugin rescan does not reload a changed QML file. Run:
+
+```bash
+omarchy restart shell
+```
+
+This is Omarchy's supervised shell restart. For a local branch preview, fetch/check out that branch in the live plugin checkout first, then restart.
+
+## A custom collector does not render
+
+Run the record through the validator before debugging the panel:
+
+```bash
+./scripts/agent-usage-doctor /path/to/provider.json
+```
+
+or pipe JSON to its standard input. The record contract documents required fields, error conventions, and the size/data limits the display enforces.

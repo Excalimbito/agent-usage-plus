@@ -94,6 +94,11 @@ omarchy plugin update io.github.viganogabriele.agent-usage-plus
 omarchy plugin remove io.github.viganogabriele.agent-usage-plus
 ```
 
+For a release dry run or a visual regression check, use the live-bar
+checklist in [`docs/manual-qa.md`](docs/manual-qa.md). Known credential,
+visibility, balance, cost, and reload states are collected in
+[`docs/troubleshooting.md`](docs/troubleshooting.md).
+
 ## About
 
 One bar icon and one panel for every AI coding subscription on the machine.

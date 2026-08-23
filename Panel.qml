@@ -33,6 +33,14 @@ Panel {
   // using `providers` (enabled-only, unchanged) so a provider hidden from
   // the bar is still reachable from the panel.
   readonly property var barProviders: usage.barProviders
+  // "All" should mean all providers are represented, not that an expanding
+  // provider set is allowed to consume the entire bar. Three full meter
+  // groups still fit beside normal Omarchy widgets; any remaining providers
+  // are represented by the explicit +N affordance, whose click falls through
+  // to the widget button and opens the complete switcher below.
+  readonly property int maxBarProviderSlots: 3
+  readonly property var visibleBarProviders: barProviders.slice(0, maxBarProviderSlots)
+  readonly property int hiddenBarProviderCount: Math.max(0, barProviders.length - visibleBarProviders.length)
   // The selection follows the provider, not the slot it happens to sit in: a
   // provider whose first scan lands while the panel is open would otherwise
   // shift the list underneath you and swap out what you were reading.
@@ -245,6 +253,20 @@ Panel {
     if (providers.length === 0) return
     var wrapped = ((index % providers.length) + providers.length) % providers.length
     selectedProviderId = providers[wrapped].providerId
+  }
+
+  // Keyboard h/l selection must also reveal the selected chip. Without this,
+  // a long provider list could change the data below while leaving the
+  // highlight off-screen in the horizontal selector.
+  function ensureSelectedChipVisible() {
+    if (!providerChipRepeater || providerSwitch.width <= 0) return
+    var chip = providerChipRepeater.itemAt(providerIndex)
+    if (!chip) return
+    var nextX = providerSwitch.contentX
+    if (chip.x < nextX) nextX = chip.x
+    else if (chip.x + chip.width > nextX + providerSwitch.width)
+      nextX = chip.x + chip.width - providerSwitch.width
+    providerSwitch.contentX = clamp(nextX, 0, Math.max(0, providerSwitch.contentWidth - providerSwitch.width))
   }
 
   // Opening a specific provider's bar group should show that provider, not
@@ -542,6 +564,7 @@ Panel {
   onProviderIndexChanged: {
     if (panelFlick) panelFlick.contentY = 0
     costOpen = false
+    Qt.callLater(root.ensureSelectedChipVisible)
   }
   onOpenedChanged: if (opened) {
     cursorActive = false
@@ -745,19 +768,17 @@ Panel {
     }
   }
 
-  // One label+meter pair per enabled, reporting, showInBar-visible provider,
-  // side by side — Claude and Codex both readable at once, each within one
-  // line's height so nothing gets clipped by the bar window's fixed height.
-  // A generous gap (no divider line) keeps the two from reading as one
-  // run-on bar.
+  // Up to three label+meter pairs per enabled, reporting, showInBar-visible
+  // provider sit side by side. Further providers are represented by +N below
+  // rather than making the bar progressively wider as support grows.
   Row {
     id: providersRow
     anchors.centerIn: button
-    spacing: Style.space(22)
+    spacing: Style.space(12)
 
     Repeater {
       id: providersRepeater
-      model: root.barProviders
+      model: root.visibleBarProviders
 
       // Plain Item, not a Row: the click target below needs its own
       // width/height for Bar's hit-test, which a Row-positioned child
@@ -819,6 +840,51 @@ Panel {
         }
       }
     }
+
+    Item {
+      visible: root.hiddenBarProviderCount > 0
+      implicitWidth: overflowText.implicitWidth
+      implicitHeight: overflowText.implicitHeight
+
+      Text {
+        id: overflowText
+        anchors.verticalCenter: parent.verticalCenter
+        text: "+" + root.hiddenBarProviderCount
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
+      }
+
+      // This needs its own registered target just like a meter group. The
+      // outer WidgetButton is visually behind the row and is not guaranteed
+      // to receive a hit through every bar implementation.
+      WidgetButton {
+        anchors.fill: parent
+        bar: root.bar
+        hasVisualContent: true
+        text: ""
+        labelVisible: false
+        onPressed: function(buttonCode) {
+          if (buttonCode === Qt.RightButton) root.launchAgent()
+          else root.toggle()
+        }
+      }
+
+      MouseArea {
+        id: overflowHover
+        anchors.fill: parent
+        hoverEnabled: true
+        acceptedButtons: Qt.NoButton
+      }
+
+      PanelToolTip {
+        visible: overflowHover.containsMouse
+        text: root.hiddenBarProviderCount + " more subscription"
+          + (root.hiddenBarProviderCount === 1 ? "" : "s") + " — click to open the full list"
+        fontFamily: root.fontFamily
+      }
+    }
   }
 
   KeyboardPanel {
@@ -852,6 +918,7 @@ Panel {
       onTextKey: function(t) {
         if (t === "r" || t === "R") root.refreshNow()
         else if (t === "e" || t === "E") root.toggleExpanded()
+        else if (t === "s" || t === "S") root.toggleSettings()
       }
 
       Flickable {
@@ -893,9 +960,11 @@ Panel {
 
                 PanelActionButton {
                   iconText: "󰒓"
-                  tooltipText: root.settingsOpen ? "Close settings" : "Settings"
+                  tooltipText: root.settingsOpen ? "Close settings (s)" : "Settings (s)"
                   foreground: root.foreground
                   fontFamily: root.fontFamily
+                  bordered: true
+                  focusable: true
                   onClicked: root.toggleSettings()
                 }
 
@@ -905,6 +974,8 @@ Panel {
                   tooltipText: root.expanded ? "Hide model breakdown (e)" : "Show all-subscription model breakdown (e)"
                   foreground: root.foreground
                   fontFamily: root.fontFamily
+                  bordered: true
+                  focusable: true
                   onClicked: root.toggleExpanded()
                 }
               }
@@ -964,65 +1035,97 @@ Panel {
           }
 
           // ---------- Provider switch ----------
-          Row {
+          Flickable {
             id: providerSwitch
             visible: root.providers.length > 1
             width: parent.width
-            spacing: Style.spacing.md
+            implicitHeight: providerChipRow.implicitHeight
+            height: implicitHeight
+            contentWidth: Math.max(width, providerChipRow.implicitWidth)
+            contentHeight: height
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.HorizontalFlick
+            interactive: contentWidth > width
 
-            readonly property real cellWidth: root.providers.length > 0
-              ? (width - spacing * (root.providers.length - 1)) / root.providers.length
-              : 0
+            // Fixed-size, horizontally scrollable chips preserve provider
+            // names as coverage grows. The old equal-width row made every
+            // name narrower with each added provider, eventually turning the
+            // subscription switch into an unlabeled strip of buttons.
+            Row {
+              id: providerChipRow
+              spacing: Style.spacing.md
 
-            Repeater {
-              model: root.providers
+              Repeater {
+                id: providerChipRepeater
+                model: root.providers
 
-              Button {
-                required property var modelData
-                required property int index
+                Button {
+                  required property var modelData
+                  required property int index
 
-                width: providerSwitch.cellWidth
-                text: modelData.providerName
-                selected: index === root.providerIndex
-                hasCursor: root.cursorActive && index === root.providerIndex
-                bordered: true
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-                fontSize: Style.font.bodySmall
-                verticalPadding: Style.spacing.controlPaddingY
-                onClicked: {
-                  root.cursorActive = true
-                  root.selectProvider(index)
+                  width: Style.space(120)
+                  text: modelData.providerName
+                  selected: index === root.providerIndex
+                  hasCursor: root.cursorActive && index === root.providerIndex
+                  bordered: true
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.bodySmall
+                  verticalPadding: Style.spacing.controlPaddingY
+                  onClicked: {
+                    root.cursorActive = true
+                    root.selectProvider(index)
+                  }
+                  onHovered: function(isHovered) { if (isHovered) root.cursorActive = true }
                 }
-                onHovered: function(isHovered) { if (isHovered) root.cursorActive = true }
               }
             }
+
+            ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
           }
 
           // ---------- Status ----------
-          BorderSurface {
-            visible: !!root.provider && String(root.provider.usageStatusText || "") !== ""
-            width: parent.width
-            implicitHeight: statusText.implicitHeight + Style.spacing.xl * 2
-            color: root.alpha(root.urgent, 0.10)
-            borderSpec: Border.flat(root.alpha(root.urgent, 0.35), 1)
-            radius: Style.cornerRadius
+            BorderSurface {
+              visible: !!root.provider && String(root.provider.usageStatusText || "") !== ""
+              width: parent.width
+              implicitHeight: statusContent.implicitHeight + Style.spacing.xl * 2
+              color: root.alpha(root.urgent, 0.10)
+              borderSpec: Border.flat(root.alpha(root.urgent, 0.35), 1)
+              radius: Style.cornerRadius
 
-            Text {
-              id: statusText
-              anchors.left: parent.left
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              anchors.leftMargin: Style.space(12)
-              anchors.rightMargin: Style.space(12)
-              text: root.provider ? String(root.provider.authHelpText || "") : ""
-              textFormat: Text.PlainText
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              wrapMode: Text.WordWrap
+              Column {
+                id: statusContent
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Style.space(12)
+                anchors.rightMargin: Style.space(12)
+                spacing: Style.space(4)
+
+                Text {
+                  width: parent.width
+                  text: root.provider ? String(root.provider.usageStatusText || "") : ""
+                  textFormat: Text.PlainText
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                  wrapMode: Text.WordWrap
+                }
+
+                Text {
+                  visible: text !== ""
+                  width: parent.width
+                  text: root.provider ? String(root.provider.authHelpText || "") : ""
+                  textFormat: Text.PlainText
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                }
+              }
             }
-          }
 
           // ---------- Balance / limits / cost ----------
           PanelSeparator {
@@ -1148,7 +1251,7 @@ Panel {
               Item {
                 id: costHeaderRow
                 width: parent.width
-                implicitHeight: Math.max(costLabel.implicitHeight, costValueText.implicitHeight)
+                implicitHeight: Math.max(costLabel.implicitHeight, costValueText.implicitHeight, costDisclosure.implicitHeight)
 
                 Text {
                   id: costLabel
@@ -1157,7 +1260,10 @@ Panel {
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   anchors.left: parent.left
+                  anchors.right: costValueText.left
+                  anchors.rightMargin: Style.space(8)
                   anchors.verticalCenter: parent.verticalCenter
+                  elide: Text.ElideRight
                 }
 
                 Text {
@@ -1167,8 +1273,28 @@ Panel {
                   color: root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
+                  anchors.right: costDisclosure.left
+                  anchors.rightMargin: root.cost && root.cost.byModel && root.cost.byModel.length > 0 ? Style.space(6) : 0
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                // The row has always been clickable when model estimates
+                // exist, but nothing on screen said so. A standard disclosure
+                // action makes the optional breakdown discoverable and gives
+                // it a keyboard target without permanently expanding more
+                // vertical content.
+                PanelActionButton {
+                  id: costDisclosure
+                  visible: !!root.cost && root.cost.byModel && root.cost.byModel.length > 0
                   anchors.right: parent.right
                   anchors.verticalCenter: parent.verticalCenter
+                  iconText: root.costOpen ? "󰅃" : "󰅀"
+                  tooltipText: root.costOpen ? "Hide model cost breakdown" : "Show model cost breakdown"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  bordered: true
+                  focusable: true
+                  onClicked: root.toggleCost()
                 }
               }
             }
@@ -1574,7 +1700,8 @@ Panel {
                     wrapMode: Text.WordWrap
                   }
 
-                  Row {
+                  Flow {
+                    width: parent.width
                     spacing: Style.spacing.xl
 
                     Row {
