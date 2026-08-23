@@ -165,6 +165,27 @@ class CollectorParsingTests(unittest.TestCase):
             "cacheCreationInputTokens": 0,
         })
 
+    def test_transcript_cost_decorator_keeps_the_base_record_on_bad_legacy_buckets(self) -> None:
+        record = {"todayTokensByModel": {
+            "scalar": float("inf"),
+            "partial": {"inputTokens": "not-a-number", "outputTokens": 42},
+        }}
+        normalise_today_buckets(record)
+        self.assertEqual(record["todayTokensByModel"], {
+            "scalar": {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0,
+            },
+            "partial": {
+                "inputTokens": 0,
+                "outputTokens": 42,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0,
+            },
+        })
+
 
 if __name__ == "__main__":
     unittest.main()

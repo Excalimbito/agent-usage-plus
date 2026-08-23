@@ -46,7 +46,13 @@ Item {
 
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: root.applyAgentListing(text)
+      onStreamFinished: {
+        root.applyAgentListing(text)
+        // The companion package can refresh records from its own systemd
+        // timer. It does not run through updateProcess, so reload after each
+        // bounded directory scan as well as after this widget's own update.
+        root.reloadAllAgents()
+      }
     }
   }
 
@@ -144,6 +150,18 @@ Item {
     if (syncConfigured()) scheduleSync()
   }
 
+  // Records are atomically replaced by both Omarchy's updater and the
+  // optional standalone companion timer. FileView would observe those writes
+  // but has no bounded-read mode, so poll the already bounded directory and
+  // per-record readers instead. This makes a first install and an external
+  // refresh appear without needing a shell restart.
+  Timer {
+    interval: 60000
+    running: true
+    repeat: true
+    onTriggered: root.rescanAgents()
+  }
+
   // -------------------------------------------------------------- refresh
 
   property int refreshIntervalSec: Math.max(30, Number(setting("refreshIntervalSec", 900)))
@@ -183,20 +201,23 @@ Item {
   }
 
   function updateCommand(kind, agentIds) {
-    // Quickshell's inherited PATH places the packaged Omarchy commands before
-    // ~/.local/bin. Use the user-owned collector explicitly so compatibility
-    // fixes survive without changing /usr/share/omarchy.
-    var command = [home + "/.local/bin/omarchy-agent-usage-update"]
-    if (kind === "force") command.push("--force")
-    if (kind === "limits") command.push("--limits-only")
+    var updateArgs = []
     var providers = settings && settings.providers ? settings.providers : {}
     for (var id in providers) {
-      if (providers[id] && providers[id].enabled === false) command.push("--except", id)
+      if (providers[id] && providers[id].enabled === false) updateArgs.push("--except", id)
     }
     if (agentIds) {
-      for (var i = 0; i < agentIds.length; i++) command.push(agentIds[i])
+      for (var i = 0; i < agentIds.length; i++) updateArgs.push(agentIds[i])
     }
-    return command
+    // A local updater is optional: this plugin must still refresh on a
+    // normal Omarchy installation where only the packaged command exists.
+    // Prefer the local copy when present because it can carry a compatibility
+    // fix ahead of the distro package (notably the Codex CLI auth-mode fix).
+    var localUpdater = home + "/.local/bin/omarchy-agent-usage-update"
+    var script = 'if [[ -x "$1" ]]; then exec "$1" "${@:2}"; fi; exec omarchy-agent-usage-update "${@:2}"'
+    if (kind === "force") updateArgs.unshift("--force")
+    if (kind === "limits") updateArgs.unshift("--limits-only")
+    return ["bash", "-c", script, "agent-usage-update", localUpdater].concat(updateArgs)
   }
 
   // Wraps the real command so only the first maxUpdateStderrBytes bytes of
@@ -237,14 +258,36 @@ Item {
     var syncRev = syncRevision
     var result = []
     var localIds = {}
+    var localDisplays = []
+    var localIndexById = {}
+    var localIsCanonicalFile = {}
     for (var i = 0; i < agents.length; i++) {
-      var record = agents[i] ? agents[i].record : null
+      var agent = agents[i]
+      var record = agent ? agent.record : null
       if (!record || !record.id) continue
       var id = Aggregate.sanitizeProviderId(record.id)
       localIds[id] = true
-      if (!providerEnabled(id)) continue
       var display = displayProvider(record)
-      if (Aggregate.providerHasData(display)) result.push(display)
+      if (!Aggregate.providerHasData(display)) continue
+
+      // A stale or third-party file can report the same provider id as the
+      // updater's canonical `<id>.json`. Keep exactly one tab/meter per
+      // provider, preferring that canonical file when both exist. Without
+      // this, a failed migration could show duplicate Codex meters and make
+      // selection appear to switch to the wrong card.
+      var canonical = agent && String(agent.agentId || "") === id
+      if (localIndexById[id] === undefined) {
+        localIndexById[id] = localDisplays.length
+        localIsCanonicalFile[id] = canonical
+        localDisplays.push(display)
+      } else if (canonical && !localIsCanonicalFile[id]) {
+        localIsCanonicalFile[id] = true
+        localDisplays[localIndexById[id]] = display
+      }
+    }
+    for (var local = 0; local < localDisplays.length; local++) {
+      var localDisplay = localDisplays[local]
+      if (providerEnabled(localDisplay.providerId)) result.push(localDisplay)
     }
     // An agent that only ever ran on another machine has no local record, but
     // its synced numbers still deserve a tab. Rate limits stay blank — they

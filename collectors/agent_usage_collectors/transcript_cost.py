@@ -36,22 +36,31 @@ def normalise_today_buckets(record: dict[str, Any]) -> None:
     raw = record.get("todayTokensByModel")
     if not isinstance(raw, dict):
         return
+    def token_count(value: Any) -> int:
+        """Coerce one legacy counter without letting bad telemetry kill usage.
+
+        The base collector owns this optional, backwards-compatible field.
+        It has emitted both scalars and partial bucket objects over time, so a
+        malformed value must become a zero *for that field*, not turn the
+        entire Claude/Codex wrapper into an "unavailable" status card.
+        """
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
     buckets: dict[str, dict[str, int]] = {}
     for model, value in raw.items():
         if isinstance(value, dict):
             buckets[str(model)] = {
-                "inputTokens": int(value.get("inputTokens") or 0),
-                "outputTokens": int(value.get("outputTokens") or 0),
-                "cacheReadInputTokens": int(value.get("cacheReadInputTokens") or 0),
-                "cacheCreationInputTokens": int(value.get("cacheCreationInputTokens") or 0),
+                "inputTokens": token_count(value.get("inputTokens")),
+                "outputTokens": token_count(value.get("outputTokens")),
+                "cacheReadInputTokens": token_count(value.get("cacheReadInputTokens")),
+                "cacheCreationInputTokens": token_count(value.get("cacheCreationInputTokens")),
             }
         else:
-            try:
-                total = max(0, int(value or 0))
-            except (TypeError, ValueError):
-                total = 0
             buckets[str(model)] = {
-                "inputTokens": total,
+                "inputTokens": token_count(value),
                 "outputTokens": 0,
                 "cacheReadInputTokens": 0,
                 "cacheCreationInputTokens": 0,
