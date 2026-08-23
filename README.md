@@ -105,11 +105,17 @@ on its refresh timer and whenever you ask for a refresh, and picks up any
 record that lands in the directory regardless of who wrote it.
 
 Adding an agent therefore never touches this plugin: ship a collector that
-prints the record contract (see Omarchy's own `omarchy-agent-usage-claude`
-and `omarchy-agent-usage-codex`, at `/usr/share/omarchy/bin/` — they aren't
-part of this repo), and the panel gains a tab. An `assets/<id>.svg` mark is optional —
-with an `assets/<id>-light.svg` twin if the mark needs a dark variant for
-light surfaces — and the bar glyph stands in when there is none.
+prints one JSON record — id, plan/limits or a prepaid balance, today's and
+this week's token usage, model breakdown, and the auth-missing /
+endpoint-down conventions the panel knows how to show — and the panel gains
+a tab, no code change here required. The full field-by-field spec, with
+minimal and complete examples, lives in
+[`docs/collector-contract.md`](docs/collector-contract.md); see Omarchy's
+own `omarchy-agent-usage-claude` and `omarchy-agent-usage-codex` (at
+`/usr/share/omarchy/bin/`, not part of this repo) for two real
+implementations. An `assets/<id>.svg` mark is optional — with an
+`assets/<id>-light.svg` twin if the mark needs a dark variant for light
+surfaces — and the bar glyph stands in when there is none.
 
 | Collector | Limits | Local stats |
 |---|---|---|
