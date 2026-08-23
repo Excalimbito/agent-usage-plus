@@ -8,6 +8,7 @@ import "logic/thresholds.js" as Thresholds
 import "logic/format.js" as Format
 import "logic/aggregate.js" as Aggregate
 import "logic/history.js" as History
+import "logic/pace.js" as Pace
 
 Panel {
   id: root
@@ -323,11 +324,13 @@ Panel {
   // and that beats reading it back out of the label: a model-scoped limit is
   // titled after its model, and a name like "Opus 5 (1M context)" would parse
   // as a one-minute window.
-  function limitWindow(label, percent, resetAt, title) {
+  function limitWindow(label, percent, resetAt, title, startedAt, tokenLimit) {
     return {
       title: String(title || "") !== "" ? String(title) : windowTitle(label),
       percent: Number(percent),
-      resetAt: String(resetAt || "")
+      resetAt: String(resetAt || ""),
+      startedAt: String(startedAt || ""),
+      tokenLimit: Number(tokenLimit || 0)
     }
   }
 
@@ -338,7 +341,7 @@ Panel {
     for (var i = 0; i < list.length; i++) {
       var entry = list[i] || {}
       var percent = Number(entry.percent)
-      if (percent >= 0) out.push(limitWindow(entry.label, percent, entry.resetsAt, entry.title))
+      if (percent >= 0) out.push(limitWindow(entry.label, percent, entry.resetsAt, entry.title, entry.startedAt, entry.tokenLimit))
     }
     return out
   }
@@ -1984,6 +1987,10 @@ Panel {
     property var window: null
 
     readonly property string severity: window ? root.severityForPercent(window.percent) : "ok"
+    // Only providers that report an explicit quota get this. A percentage
+    // meter alone cannot be turned into a token burn projection honestly.
+    readonly property var paceProjection: Pace.projectExhaustion(
+      root.provider ? root.provider.recentDays : [], window, window ? window.resetAt : "", root.nowMs)
 
     spacing: Style.space(6)
 
@@ -2034,6 +2041,17 @@ Panel {
         return remainingMs > 0 ? "Resets in " + root.formatDuration(remainingMs) : ""
       }
       color: root.dim
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+
+    Text {
+      visible: !!limitRow.paceProjection && limitRow.paceProjection.exhaustsBeforeReset
+      width: parent.width
+      text: (limitRow.paceProjection && limitRow.paceProjection.exhaustsBeforeReset)
+        ? "At this pace: exhausted in " + root.formatDuration(limitRow.paceProjection.untilExhaustionMs) : ""
+      textFormat: Text.PlainText
+      color: root.colorForSeverity(limitRow.severity)
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
     }

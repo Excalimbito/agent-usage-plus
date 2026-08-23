@@ -56,7 +56,12 @@ function sanitizeLimits(raw) {
       label: sanitizeDisplayText(entry.label, 80),
       title: sanitizeDisplayText(entry.title, 80),
       percent: entry.percent,
-      resetsAt: sanitizeDisplayText(entry.resetsAt, 40)
+      tokenLimit: numberValue(entry.tokenLimit),
+      resetsAt: sanitizeDisplayText(entry.resetsAt, 40),
+      // Optional, but required for a defensible pace projection: guessing a
+      // window length from its label makes an estimate look more certain than
+      // the underlying data is.
+      startedAt: sanitizeDisplayText(entry.startedAt, 40)
     })
   }
   return out
@@ -76,7 +81,11 @@ function capModelUsage(raw) {
   var count = 0
   for (var id in usage) {
     if (count >= 100) break
-    out[sanitizeDisplayText(id, 80)] = usage[id]
+    // TokenBucket is canonical for both modelUsage and
+    // todayTokensByModel. Dropping a malformed scalar is safer than silently
+    // turning it into a made-up input-token count.
+    if (!usage[id] || typeof usage[id] !== "object") continue
+    out[sanitizeDisplayText(id, 80)] = tokenBucketValue(usage[id])
     count++
   }
   return out
@@ -156,6 +165,7 @@ function costValue(raw) {
   return {
     estimateUsd: estimateUsd,
     period: sanitizeDisplayText(raw.period, 20),
+    pricingVersion: sanitizeDisplayText(raw.pricingVersion, 40),
     byModel: byModel,
     byDay: byDay
   }
@@ -184,6 +194,16 @@ function emptyTokenBucket() {
   return { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }
 }
 
+function tokenBucketValue(raw) {
+  var bucket = raw && typeof raw === "object" ? raw : {}
+  return {
+    inputTokens: numberValue(bucket.inputTokens),
+    outputTokens: numberValue(bucket.outputTokens),
+    cacheReadInputTokens: numberValue(bucket.cacheReadInputTokens),
+    cacheCreationInputTokens: numberValue(bucket.cacheCreationInputTokens)
+  }
+}
+
 // Device-scoped stats add up across machines; account-scoped stats
 // (Fireworks' billing API) are replicas of the same upstream truth on
 // every synced device, so the widest value wins — summing them would
@@ -195,6 +215,14 @@ function combineNumber(additive, current, value) {
 function combineObjectNumbers(additive, target, source) {
   if (!source) return
   for (var key in source) target[key] = combineNumber(additive, target[key], source[key])
+}
+
+function combineTokenBuckets(additive, target, source) {
+  var bucket = tokenBucketValue(source)
+  target.inputTokens = combineNumber(additive, target.inputTokens, bucket.inputTokens)
+  target.outputTokens = combineNumber(additive, target.outputTokens, bucket.outputTokens)
+  target.cacheReadInputTokens = combineNumber(additive, target.cacheReadInputTokens, bucket.cacheReadInputTokens)
+  target.cacheCreationInputTokens = combineNumber(additive, target.cacheCreationInputTokens, bucket.cacheCreationInputTokens)
 }
 
 // -------------------------------------------------------------- snapshots
@@ -276,7 +304,12 @@ function aggregateSnapshots(snapshots, maxSnapshots) {
         acc.activeDates[String(activeDates[ad]).slice(0, 20)] = true
       }
       acc.activeDays = Math.max(acc.activeDays, numberValue(stats.activeDays))
-      combineObjectNumbers(additive, acc.todayTokensByModel, capModelUsage(stats.todayTokensByModel))
+      var todayUsage = capModelUsage(stats.todayTokensByModel)
+      for (var todayModelId in todayUsage) {
+        var todayBucket = acc.todayTokensByModel[todayModelId]
+        if (!todayBucket) todayBucket = acc.todayTokensByModel[todayModelId] = emptyTokenBucket()
+        combineTokenBuckets(additive, todayBucket, todayUsage[todayModelId])
+      }
 
       var recent = Array.isArray(stats.recentDays) ? stats.recentDays : []
       for (var r = 0; r < recent.length && r < 366; r++) {
@@ -290,7 +323,7 @@ function aggregateSnapshots(snapshots, maxSnapshots) {
       for (var modelId in usage) {
         var bucket = acc.modelUsage[modelId]
         if (!bucket) bucket = acc.modelUsage[modelId] = emptyTokenBucket()
-        combineObjectNumbers(additive, bucket, usage[modelId] || {})
+        combineTokenBuckets(additive, bucket, usage[modelId])
       }
     }
   }
@@ -403,7 +436,7 @@ function allProviderModelUsage(providers) {
     for (var modelId in usage) {
       var bucket = combined[modelId]
       if (!bucket) bucket = combined[modelId] = emptyTokenBucket()
-      combineObjectNumbers(true, bucket, usage[modelId] || {})
+      combineTokenBuckets(true, bucket, usage[modelId])
     }
   }
   return combined
@@ -563,8 +596,10 @@ if (typeof module !== "undefined" && module.exports) {
     dateString: dateString,
     recentDateStrings: recentDateStrings,
     emptyTokenBucket: emptyTokenBucket,
+    tokenBucketValue: tokenBucketValue,
     combineNumber: combineNumber,
     combineObjectNumbers: combineObjectNumbers,
+    combineTokenBuckets: combineTokenBuckets,
     aggregateSnapshots: aggregateSnapshots,
     allProviderModelUsage: allProviderModelUsage,
     providerSnapshot: providerSnapshot,

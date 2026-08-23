@@ -1,0 +1,16 @@
+{
+  "provider": "claude",
+  "period": "today",
+  "modelUsage": {
+    "claude-sonnet-4-20250514": {
+      "inputTokens": 1000000,
+      "outputTokens": 1000000,
+      "cacheReadInputTokens": 1000000,
+      "cacheCreationInputTokens": 1000000
+    }
+  },
+  "expected": {
+    "estimateUsd": 22.05,
+    "pricingVersion": "2026-08-23"
+  }
+}
