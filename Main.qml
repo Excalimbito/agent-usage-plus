@@ -21,10 +21,20 @@ Item {
   property var agents: []
   property int dataRevision: 0
 
+  // Hard caps on the local usage-directory scan: a file at or above maxAgentFileBytes
+  // is excluded before any Agent/FileView is ever created for it, the file count is
+  // capped at the shell level (head), and the whole scan is time-boxed. These are the
+  // limits requested in the marketplace security review — enforced at the source
+  // rather than after the fact.
+  readonly property int maxAgentFiles: 500
+  readonly property int maxAgentFileBytes: 1048576
+
   Process {
     id: listProcess
     running: false
-    command: ["find", root.usageDir, "-maxdepth", "1", "-name", "*.json", "-printf", "%f\n"]
+    command: ["timeout", "5", "bash", "-c",
+      "find \"$1\" -maxdepth 1 -name '*.json' -size -" + root.maxAgentFileBytes + "c -printf '%f\\n' 2>/dev/null | head -n " + root.maxAgentFiles,
+      "find-agents", root.usageDir]
 
     stdout: StdioCollector {
       waitForEnd: true
@@ -39,7 +49,7 @@ Item {
   function applyAgentListing(output) {
     var ids = []
     var lines = String(output || "").split("\n")
-    for (var i = 0; i < lines.length; i++) {
+    for (var i = 0; i < lines.length && ids.length < root.maxAgentFiles; i++) {
       var name = lines[i].trim()
       if (name.slice(-5) === ".json") ids.push(name.slice(0, -5))
     }
@@ -99,8 +109,8 @@ Item {
     var advising = []
     for (var i = 0; i < agents.length; i++) {
       var record = agents[i] ? agents[i].record : null
-      if (record && record.retryAdvised === true && providerEnabled(String(record.id || "")))
-        advising.push(String(record.id))
+      if (record && record.retryAdvised === true && providerEnabled(sanitizeProviderId(record.id)))
+        advising.push(sanitizeProviderId(record.id))
     }
     retryAgentIds = advising
     if (advising.length > 0) limitsRetry.restart()
@@ -193,7 +203,7 @@ Item {
     for (var i = 0; i < agents.length; i++) {
       var record = agents[i] ? agents[i].record : null
       if (!record || !record.id) continue
-      var id = String(record.id)
+      var id = sanitizeProviderId(record.id)
       localIds[id] = true
       if (!providerEnabled(id)) continue
       var display = displayProvider(record)
@@ -201,10 +211,16 @@ Item {
     }
     // An agent that only ever ran on another machine has no local record, but
     // its synced numbers still deserve a tab. Rate limits stay blank — they
-    // are per-account and never travel.
+    // are per-account and never travel. aggregateData.providers is already
+    // keyed by sanitized id (aggregateSnapshots does this on ingestion), so
+    // syncedId here needs no further sanitizing before use as a lookup key —
+    // it does still get sanitized again inside displayProvider before it is
+    // ever used to build an asset path or a display label.
     var syncedProviders = syncConfigured() && aggregateData && aggregateData.providers ? aggregateData.providers : {}
+    var syncedCount = 0
     for (var syncedId in syncedProviders) {
       if (localIds[syncedId] || !providerEnabled(syncedId)) continue
+      if (++syncedCount > 50) break
       var stats = syncedProviders[syncedId] || {}
       var syncedDisplay = displayProvider({ id: syncedId, name: stats.providerName || syncedId })
       if (providerHasData(syncedDisplay)) result.push(syncedDisplay)
@@ -237,38 +253,39 @@ Item {
       remaining: remaining,
       funded: isFinite(funded) && funded > 0 ? funded : 0,
       spent: Math.max(0, Number(raw.spent) || 0),
-      currency: String(raw.currency || "USD"),
+      currency: sanitizeDisplayText(raw.currency || "USD", 10),
       estimated: raw.estimated === true
     }
   }
 
   function displayProvider(record) {
-    var stats = syncedStatsFor(String(record.id))
+    var providerId = sanitizeProviderId(record.id)
+    var stats = syncedStatsFor(providerId)
     var synced = !!stats
     var deviceCount = synced ? Number(stats.deviceCount || aggregateData.deviceCount || 0) : 0
 
     return {
-      providerId: String(record.id),
-      providerName: String(record.name || record.id),
+      providerId: providerId,
+      providerName: sanitizeDisplayText(record.name || record.id, 80),
       ready: record.ready === true || synced,
-      usageStatusText: String(record.usageStatusText || ""),
-      authHelpText: String(record.authHelpText || ""),
+      usageStatusText: sanitizeDisplayText(record.usageStatusText, 200),
+      authHelpText: sanitizeDisplayText(record.authHelpText, 300),
 
       // Rate limits and balances stay per-account and are never merged
       // across devices.
-      limits: Array.isArray(record.limits) ? record.limits : [],
-      tierLabel: String(record.tierLabel || ""),
+      limits: sanitizeLimits(record.limits),
+      tierLabel: sanitizeDisplayText(record.tierLabel, 60),
       balance: balanceValue(record.balance),
 
       todayPrompts: synced ? numberValue(stats.todayPrompts) : numberValue(record.todayPrompts),
       todaySessions: synced ? numberValue(stats.todaySessions) : numberValue(record.todaySessions),
       todayTotalTokens: synced ? numberValue(stats.todayTotalTokens) : numberValue(record.todayTotalTokens),
-      todayTokensByModel: synced ? (stats.todayTokensByModel || ({})) : (record.todayTokensByModel || ({})),
-      recentDays: synced ? (stats.recentDays || []) : (record.recentDays || []),
+      todayTokensByModel: synced ? capModelUsage(stats.todayTokensByModel) : capModelUsage(record.todayTokensByModel),
+      recentDays: synced ? capRecentDays(stats.recentDays) : capRecentDays(record.recentDays),
       totalPrompts: synced ? numberValue(stats.totalPrompts) : numberValue(record.totalPrompts),
       totalSessions: synced ? numberValue(stats.totalSessions) : numberValue(record.totalSessions),
       activeDays: synced ? numberValue(stats.activeDays) : numberValue(record.activeDays),
-      modelUsage: synced ? (stats.modelUsage || ({})) : (record.modelUsage || ({})),
+      modelUsage: synced ? capModelUsage(stats.modelUsage) : capModelUsage(record.modelUsage),
       hasLocalStats: synced ? (stats.hasLocalStats !== false) : (record.hasLocalStats !== false),
       hasPromptStats: synced ? (stats.hasPromptStats !== false) : (record.hasPromptStats !== false),
 
@@ -417,13 +434,27 @@ Item {
     Qt.callLater(root.startSyncScan)
   }
 
+  // Caps on the sync-directory scan: snapshots come from other machines over
+  // whatever transport backs the configured sync directory, so none of it is
+  // trusted. At most maxSyncSnapshots files are read, each truncated to
+  // maxSyncSnapshotBytes, the whole concatenated output is capped again, and
+  // the scan itself is time-boxed — limits enforced in the shell pipeline
+  // itself, before any of it reaches QML.
+  readonly property int maxSyncSnapshots: 50
+  readonly property int maxSyncSnapshotBytes: 262144
+  readonly property int maxSyncScanOutputBytes: 20971520
+
   function startSyncScan() {
     if (!syncConfigured()) {
       finishSyncRun()
       return
     }
-    var script = "dir=$0; [[ -d \"$dir\" ]] || exit 0; shopt -s nullglob; for f in \"$dir\"/*.json; do [[ -f \"$f\" ]] || continue; printf '===%s===\\n' \"$f\"; cat \"$f\"; printf '\\n=== EOM ===\\n'; done"
-    syncScanProcess.command = ["bash", "-c", script, root.syncEffectiveDir]
+    var script = "dir=$0; [[ -d \"$dir\" ]] || exit 0; shopt -s nullglob;"
+      + " { n=0; for f in \"$dir\"/*.json; do [[ -f \"$f\" ]] || continue;"
+      + " n=$((n+1)); [[ $n -le " + root.maxSyncSnapshots + " ]] || break;"
+      + " printf '===%s===\\n' \"$f\"; head -c " + root.maxSyncSnapshotBytes + " \"$f\";"
+      + " printf '\\n=== EOM ===\\n'; done; } | head -c " + root.maxSyncScanOutputBytes
+    syncScanProcess.command = ["timeout", "10", "bash", "-c", script, root.syncEffectiveDir]
     syncScanProcess.running = true
   }
 
@@ -469,6 +500,7 @@ Item {
 
     function flush() {
       if (currentPath === "") return
+      if (snapshots.length >= root.maxSyncSnapshots) return
       var raw = currentJson.join("\n").trim()
       try {
         var parsed = JSON.parse(raw)
@@ -514,6 +546,75 @@ Item {
   function numberValue(value) {
     var n = Number(value || 0)
     return isFinite(n) ? Math.round(n) : 0
+  }
+
+  // ---------------------------------------------------------- untrusted input
+  //
+  // Everything below sanitizes values that ultimately come from a usage
+  // record or a synced snapshot — content this module never generated and,
+  // in the synced case, never even generated on this machine. All of it can
+  // reach native QML Text/Button/Image sinks in Panel.qml, most of which are
+  // shared Omarchy components this plugin doesn't own and can't set
+  // textFormat on directly. Neutralizing the risky characters and capping
+  // sizes here, once, covers every sink at once.
+
+  // A provider id feeds straight into an asset path (Qt.resolvedUrl("assets/"
+  // + id + ".svg")) in Panel.qml, so it must never contain path separators or
+  // traversal segments — restrict it to a safe, filename-like charset.
+  function sanitizeProviderId(raw) {
+    var value = String(raw || "").trim()
+    value = value.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^[-_.]+|[-_.]+$/g, "")
+    if (value === "") value = "agent"
+    return value.length > 64 ? value.substring(0, 64) : value
+  }
+
+  // Strips control characters and the characters QML's rich-text detection
+  // keys off of (`<`, `>`, `&`), so a record can't get itself rendered as
+  // markup regardless of which Text/Button component ends up displaying it.
+  // Also caps length so one field can't blow up a panel's layout.
+  function sanitizeDisplayText(raw, maxLen) {
+    var text = raw === undefined || raw === null ? "" : String(raw)
+    text = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")
+    text = text.replace(/[<>&]/g, "")
+    var limit = maxLen || 200
+    return text.length > limit ? text.substring(0, limit) : text
+  }
+
+  // Rate-limit windows come straight from a usage record; cap how many are
+  // trusted and sanitize the free-text fields before they reach LimitRow.
+  function sanitizeLimits(raw) {
+    var list = Array.isArray(raw) ? raw : []
+    var out = []
+    for (var i = 0; i < list.length && out.length < 20; i++) {
+      var entry = list[i] || {}
+      out.push({
+        label: sanitizeDisplayText(entry.label, 80),
+        title: sanitizeDisplayText(entry.title, 80),
+        percent: entry.percent,
+        resetsAt: sanitizeDisplayText(entry.resetsAt, 40)
+      })
+    }
+    return out
+  }
+
+  function capRecentDays(raw) {
+    var list = Array.isArray(raw) ? raw : []
+    return list.length > 31 ? list.slice(0, 31) : list
+  }
+
+  // Bounds how many distinct model ids a single record/snapshot can push into
+  // TOKENS BY MODEL bookkeeping, independent of the top-4 Panel.qml already
+  // displays — that slice happens after this data is built and merged.
+  function capModelUsage(raw) {
+    var usage = raw && typeof raw === "object" ? raw : {}
+    var out = {}
+    var count = 0
+    for (var id in usage) {
+      if (count >= 100) break
+      out[sanitizeDisplayText(id, 80)] = usage[id]
+      count++
+    }
+    return out
   }
 
   function dateString(date) {
@@ -580,16 +681,27 @@ Item {
       return providers[id]
     }
 
-    for (var i = 0; i < snapshots.length; i++) {
+    // Snapshots are written by other machines over whatever transport backs
+    // the sync directory, so every shape and size below is untrusted. The
+    // caps here (snapshot count, providers per snapshot, distinct providers
+    // overall, and the per-collection loops) bound the CPU and memory this
+    // merge can be made to spend, on top of the file-count/size limits the
+    // scan itself already enforces.
+    var snapshotCap = Math.min(snapshots.length, root.maxSyncSnapshots)
+    for (var i = 0; i < snapshotCap; i++) {
       var snapshot = snapshots[i]
       var device = safeDeviceId(snapshot.deviceId || "device")
       devices[device] = true
       var snapshotProviders = snapshot.providers || {}
-      for (var providerId in snapshotProviders) {
-        var stats = snapshotProviders[providerId] || {}
-        var acc = providerAcc(String(providerId))
+      var providerCount = 0
+      for (var rawProviderId in snapshotProviders) {
+        if (++providerCount > 100) break
+        var providerId = sanitizeProviderId(rawProviderId)
+        if (!providers[providerId] && Object.keys(providers).length >= 100) continue
+        var stats = snapshotProviders[rawProviderId] || {}
+        var acc = providerAcc(providerId)
         acc.devices[device] = true
-        if (stats.providerName && acc.providerName === "") acc.providerName = String(stats.providerName)
+        if (stats.providerName && acc.providerName === "") acc.providerName = sanitizeDisplayText(stats.providerName, 80)
         acc.ready = acc.ready || stats.ready === true
         acc.hasLocalStats = acc.hasLocalStats || stats.hasLocalStats !== false
         // Snapshots from before the field existed only came from agents that
@@ -605,19 +717,22 @@ Item {
         // summing counts. Snapshots written before activeDates existed only
         // carry a count; the widest one stands in for them.
         var activeDates = Array.isArray(stats.activeDates) ? stats.activeDates : []
-        for (var ad = 0; ad < activeDates.length; ad++) acc.activeDates[String(activeDates[ad])] = true
+        for (var ad = 0; ad < activeDates.length && ad < 400; ad++) {
+          if (Object.keys(acc.activeDates).length >= 1000) break
+          acc.activeDates[String(activeDates[ad]).slice(0, 20)] = true
+        }
         acc.activeDays = Math.max(acc.activeDays, numberValue(stats.activeDays))
-        combineObjectNumbers(additive, acc.todayTokensByModel, stats.todayTokensByModel || {})
+        combineObjectNumbers(additive, acc.todayTokensByModel, capModelUsage(stats.todayTokensByModel))
 
         var recent = Array.isArray(stats.recentDays) ? stats.recentDays : []
-        for (var r = 0; r < recent.length; r++) {
+        for (var r = 0; r < recent.length && r < 366; r++) {
           var day = recent[r] || {}
           var date = String(day.date || "")
           if (acc.recentByDay[date] !== undefined)
             acc.recentByDay[date] = combineNumber(additive, acc.recentByDay[date], day.messageCount)
         }
 
-        var usage = stats.modelUsage || {}
+        var usage = capModelUsage(stats.modelUsage)
         for (var modelId in usage) {
           var bucket = acc.modelUsage[modelId]
           if (!bucket) bucket = acc.modelUsage[modelId] = emptyTokenBucket()
@@ -664,10 +779,14 @@ Item {
 
   // Snapshots keep the field names older Omarchy versions wrote, so a fleet
   // of machines on mixed versions still merges cleanly in both directions.
+  // This is also what this machine writes into the shared sync directory, so
+  // it gets sanitized and capped just like an incoming snapshot: a corrupted
+  // or hostile local record shouldn't be able to use the fleet's own sync
+  // mechanism to push oversized or malformed data onto every other machine.
   function providerSnapshot(record) {
     return {
-      providerId: String(record.id),
-      providerName: String(record.name || record.id),
+      providerId: sanitizeProviderId(record.id),
+      providerName: sanitizeDisplayText(record.name || record.id, 80),
       ready: record.ready === true,
       hasLocalStats: record.hasLocalStats !== false,
       hasPromptStats: record.hasPromptStats !== false,
@@ -675,23 +794,26 @@ Item {
       todayPrompts: numberValue(record.todayPrompts),
       todaySessions: numberValue(record.todaySessions),
       todayTotalTokens: numberValue(record.todayTotalTokens),
-      todayTokensByModel: cloneValue(record.todayTokensByModel, ({})),
-      recentDays: cloneValue(record.recentDays, []),
+      todayTokensByModel: capModelUsage(record.todayTokensByModel),
+      recentDays: capRecentDays(cloneValue(record.recentDays, [])),
       totalPrompts: numberValue(record.totalPrompts),
       totalSessions: numberValue(record.totalSessions),
       activeDays: numberValue(record.activeDays),
-      activeDates: cloneValue(record.activeDates, []),
-      modelUsage: cloneValue(record.modelUsage, ({}))
+      activeDates: cloneValue(record.activeDates, []).slice(0, 400),
+      modelUsage: capModelUsage(record.modelUsage)
     }
   }
 
   function localSnapshot() {
     var providerMap = {}
+    var count = 0
     for (var i = 0; i < agents.length; i++) {
       var record = agents[i] ? agents[i].record : null
       if (!record || !record.id) continue
-      if (!providerEnabled(String(record.id))) continue
-      providerMap[String(record.id)] = providerSnapshot(record)
+      var id = sanitizeProviderId(record.id)
+      if (!providerEnabled(id)) continue
+      if (++count > 100) break
+      providerMap[id] = providerSnapshot(record)
     }
     return {
       schemaVersion: 1,

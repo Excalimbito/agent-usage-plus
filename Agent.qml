@@ -13,6 +13,11 @@ Item {
   property string path: ""
   property var record: null
 
+  // Main.qml's listing already excludes files at or above this size before an
+  // Agent is ever created for them; this is a backstop against a file that
+  // grows past the limit between that scan and this load.
+  readonly property int maxBytes: 1048576
+
   FileView {
     path: root.path
     watchChanges: true
@@ -23,8 +28,14 @@ Item {
   }
 
   function parse(content) {
+    var raw = String(content || "")
+    if (raw.length > root.maxBytes) {
+      console.warn("agents", "Ignoring oversized usage record", root.path, raw.length)
+      root.record = null
+      return
+    }
     try {
-      var parsed = JSON.parse(String(content || ""))
+      var parsed = JSON.parse(raw)
       root.record = parsed && typeof parsed === "object" ? parsed : null
     } catch (e) {
       console.warn("agents", "Ignoring bad usage record", root.path, e)

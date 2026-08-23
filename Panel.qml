@@ -293,12 +293,21 @@ Panel {
   // Marks resolve by convention, so a new agent's data file needs nothing
   // from this panel: assets/<id>.svg if it ships one, the module's bar glyph
   // if it doesn't.
+  //
+  // providerId ultimately comes from a usage record's "id" field (or, when
+  // synced, a key inside another machine's snapshot file) and Main.qml's
+  // sanitizeProviderId() already restricts it to [A-Za-z0-9_-] before it
+  // reaches here — but this is exactly the string that gets concatenated
+  // into a resource URL, so it is re-validated at the point of use rather
+  // than trusted to have gone through the right upstream function.
   function iconCandidatesForProvider(p, surfaceColor) {
     if (!p) return []
+    var id = String(p.providerId || "")
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return []
     var candidates = []
     if (colorLuminance(surfaceColor || Color.background) >= 0.5)
-      candidates.push(Qt.resolvedUrl("assets/" + p.providerId + "-light.svg"))
-    candidates.push(Qt.resolvedUrl("assets/" + p.providerId + ".svg"))
+      candidates.push(Qt.resolvedUrl("assets/" + id + "-light.svg"))
+    candidates.push(Qt.resolvedUrl("assets/" + id + ".svg"))
     return candidates
   }
 
@@ -477,6 +486,7 @@ Panel {
       anchors.centerIn: parent
       visible: markImage.status !== Image.Ready
       text: providerMark.provider ? providerMark.provider.providerId.charAt(0).toUpperCase() : ""
+      textFormat: Text.PlainText
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
@@ -735,6 +745,7 @@ Panel {
               anchors.leftMargin: Style.space(12)
               anchors.rightMargin: Style.space(12)
               text: root.provider ? String(root.provider.authHelpText || "") : ""
+              textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -784,6 +795,7 @@ Panel {
               Text {
                 id: balanceValue
                 text: root.balance ? root.formatMoney(root.balance.remaining, root.balance.currency) : ""
+                textFormat: Text.PlainText
                 color: root.balanceAlarming ? root.urgent : root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -803,6 +815,7 @@ Panel {
               visible: text !== ""
               width: parent.width
               text: root.balanceDetailText(root.balance)
+              textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -938,6 +951,7 @@ Panel {
         // A model-scoped window is titled after its model, and those names run
         // long enough to reach the percentage, so the title gives way first.
         text: limitRow.window ? limitRow.window.title : ""
+        textFormat: Text.PlainText
         color: root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
@@ -1116,6 +1130,7 @@ Panel {
     Text {
       id: modelName
       text: modelRow.row ? modelRow.row.name : ""
+      textFormat: Text.PlainText
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
