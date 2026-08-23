@@ -264,6 +264,12 @@ Item {
     return settings.providers[id].enabled !== false
   }
 
+  // The bar-widget slice of enabledProviders: same "enabled and has data"
+  // list the panel's chip switcher uses, further narrowed by `showInBar`
+  // (see logic/aggregate.js). The panel keeps using enabledProviders
+  // directly so a provider with `showInBar: false` stays selectable there.
+  property var barProviders: Aggregate.selectBarProviders(enabledProviders, settings)
+
   // Merges one usage record with its synced counterpart (if any) into the
   // per-provider object the panel renders — see logic/aggregate.js for the
   // pure merge (mergeProviderDisplay) and the "has this provider produced

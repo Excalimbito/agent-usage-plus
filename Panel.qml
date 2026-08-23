@@ -21,6 +21,11 @@ Panel {
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   readonly property var providers: usage.enabledProviders
+  // The bar row only draws providers with showInBar !== false; the panel's
+  // chip switcher, provider selection, and empty-state text below all keep
+  // using `providers` (enabled-only, unchanged) so a provider hidden from
+  // the bar is still reachable from the panel.
+  readonly property var barProviders: usage.barProviders
   // The selection follows the provider, not the slot it happens to sit in: a
   // provider whose first scan lands while the panel is open would otherwise
   // shift the list underneath you and swap out what you were reading.
@@ -497,10 +502,11 @@ Panel {
     }
   }
 
-  // One label+meter pair per enabled, reporting provider, side by side —
-  // Claude and Codex both readable at once, each within one line's height
-  // so nothing gets clipped by the bar window's fixed height. A generous
-  // gap (no divider line) keeps the two from reading as one run-on bar.
+  // One label+meter pair per enabled, reporting, showInBar-visible provider,
+  // side by side — Claude and Codex both readable at once, each within one
+  // line's height so nothing gets clipped by the bar window's fixed height.
+  // A generous gap (no divider line) keeps the two from reading as one
+  // run-on bar.
   Row {
     id: providersRow
     anchors.centerIn: button
@@ -508,7 +514,7 @@ Panel {
 
     Repeater {
       id: providersRepeater
-      model: root.providers
+      model: root.barProviders
 
       // Plain Item, not a Row: the click target below needs its own
       // width/height for Bar's hit-test, which a Row-positioned child
