@@ -36,43 +36,43 @@
           "primary": false
         },
         "fireworks": {
-          "enabled": true,
-          "showInBar": true,
+          "enabled": false,
+          "showInBar": false,
           "primary": false
         },
         "openrouter": {
-          "enabled": true,
-          "showInBar": true,
+          "enabled": false,
+          "showInBar": false,
           "primary": false
         },
         "deepseek": {
-          "enabled": true,
-          "showInBar": true,
+          "enabled": false,
+          "showInBar": false,
           "primary": false
         },
         "gemini": {
-          "enabled": true,
-          "showInBar": true,
+          "enabled": false,
+          "showInBar": false,
           "primary": false
         },
         "cursor": {
-          "enabled": true,
-          "showInBar": true,
+          "enabled": false,
+          "showInBar": false,
           "primary": false
         },
         "kimi": {
-          "enabled": true,
-          "showInBar": true,
+          "enabled": false,
+          "showInBar": false,
           "primary": false
         },
         "xai": {
-          "enabled": true,
-          "showInBar": true,
+          "enabled": false,
+          "showInBar": false,
           "primary": false
         },
         "zai": {
-          "enabled": true,
-          "showInBar": true,
+          "enabled": false,
+          "showInBar": false,
           "primary": false
         }
       },

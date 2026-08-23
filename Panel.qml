@@ -987,7 +987,10 @@ Panel {
     // narrow panel regularly truncated the cost source and model names,
     // making otherwise correct information look unfinished.
     contentWidth: panel.fittedContentWidth(Style.space(430))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(600))
+    // Keep the everyday Claude/Codex view on screen. Details can be longer,
+    // but making the default popup short turned even ordinary mouse-wheel
+    // scrolling into needless work.
+    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(660))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -999,7 +1002,7 @@ Panel {
           root.selectProvider(root.providerIndex + dx)
         }
         if (dy !== 0)
-          panelFlick.contentY = root.clamp(panelFlick.contentY + dy * Style.space(56), 0,
+          panelFlick.contentY = root.clamp(panelFlick.contentY + dy * Style.space(150), 0,
                                            Math.max(0, panelFlick.contentHeight - panelFlick.height))
       }
       onActivateRequested: root.refreshNow()
@@ -1020,12 +1023,14 @@ Panel {
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height
+        maximumFlickVelocity: 4800
+        flickDeceleration: 900
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
         Column {
           id: column
           width: panelFlick.width
-          spacing: Style.space(14)
+          spacing: Style.space(18)
 
           // ---------- Hero: provider mark · name · plan ----------
           PanelHero {
@@ -1046,7 +1051,7 @@ Panel {
             // asked to see.
             trailingControl: Component {
               Row {
-                spacing: Style.space(4)
+                spacing: Style.space(8)
 
                 PanelActionButton {
                   iconText: "󰒓"
@@ -1204,7 +1209,7 @@ Panel {
             PanelActionButton {
               id: providerPrevious
               anchors.right: providerNext.left
-              anchors.rightMargin: Style.space(4)
+              anchors.rightMargin: Style.space(10)
               anchors.verticalCenter: parent.verticalCenter
               iconText: "󰅁"
               tooltipText: "Previous subscription (h)"
@@ -1403,7 +1408,10 @@ Panel {
           // competing with the subscription allowance above it.
           BorderSurface {
             id: costSection
-            visible: !!root.cost
+            // API-rate cost is useful for an audit, not the first answer a
+            // subscription panel should demand attention for. Keep it in
+            // Details with the other secondary data.
+            visible: !!root.cost && root.expanded
             width: parent.width
             implicitHeight: costContent.implicitHeight + Style.space(28)
             color: root.alpha(root.foreground, 0.035)
