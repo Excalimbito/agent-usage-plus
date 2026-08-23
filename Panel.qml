@@ -480,9 +480,10 @@ Panel {
 
   function costSummaryText(cost) {
     if (!cost) return ""
-    var period = String(cost.period || "")
-    var label = cost.incomplete ? "Partial estimate" : "Published API rates"
-    return period === "" ? label : label + " · " + period
+    // The source belongs in the explanatory line below. Keeping this short
+    // gives the dollar value a stable, readable place instead of squeezing
+    // both into one truncated technical sentence.
+    return cost.incomplete ? "Partial total" : "Estimated total"
   }
 
   function costHelpText(cost) {
@@ -494,7 +495,9 @@ Panel {
       return "Excludes " + (names.length === 1 ? "unpriced model: " : "unpriced models: ")
         + names.join(", ") + "."
     }
-    return "Based on local transcript tokens at published API rates. Not a bill."
+    var period = String(cost.period || "")
+    return (period !== "" ? period + " · " : "")
+      + "based on local transcript tokens at published API rates. Not a bill."
   }
 
   function dayTooltip(day, today) {
