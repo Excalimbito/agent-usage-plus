@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.viganogabriele.agent-usage-plus",
   "name": "Agent Usage Plus",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "author": "Gabriele Vigano",
   "license": "MIT",
   "description": "Claude Code, Codex, and Fireworks usage, limits, and pace in a native Omarchy bar panel.",
@@ -26,13 +26,16 @@
     "defaults": {
       "providers": {
         "claude": {
-          "enabled": true
+          "enabled": true,
+          "showInBar": true
         },
         "codex": {
-          "enabled": true
+          "enabled": true,
+          "showInBar": true
         },
         "fireworks": {
-          "enabled": true
+          "enabled": true,
+          "showInBar": true
         }
       },
       "refreshIntervalSec": 900,

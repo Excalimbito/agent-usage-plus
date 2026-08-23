@@ -17,7 +17,9 @@ session+weekly pair Claude gets.
 Changes from the built-in version:
 
 - The bar shows a live meter (and percentage) per enabled subscription
-  side by side, instead of a single icon.
+  side by side, instead of a single icon. A subscription can be enabled
+  without taking up bar space via the per-provider `showInBar` setting
+  below — it then stays reachable as a chip in the panel.
 - Panel opens on click only (the stock widget also opened on hover; some
   users found that too eager while just passing the cursor over the bar).
 - A secondary tick marks the weekly percentage on top of the session meter
@@ -208,15 +210,23 @@ edit `shell.json` directly):
 
 ```bash
 omarchy bar set io.github.viganogabriele.agent-usage-plus providers '{
-  "claude": { "enabled": true },
+  "claude": { "enabled": true, "showInBar": true },
   "codex": { "enabled": false },
-  "fireworks": { "enabled": true }
+  "fireworks": { "enabled": true, "showInBar": false }
 }' --json
 ```
 
 `enabled` defaults to `true` for every discovered agent; set it to `false` to
-hide a subscription that is installed. Disabled agents are also skipped when
-the records regenerate.
+hide a subscription everywhere — the bar, the panel's subscription switch,
+and the records the update command regenerates.
+
+`showInBar` defaults to `true` and only controls the bar meters: set it to
+`false` to keep a provider out of the bar row while leaving it enabled —
+it stays selectable as a chip in the panel's subscription switch, just
+without its own slot in the bar. It has no effect on a provider that is
+already `enabled: false`. Omitting `showInBar` entirely (including in a
+`shell.json` written before this option existed) behaves exactly like
+`showInBar: true`.
 
 With `syncMode` on, every `*.json` snapshot in `syncDir` is merged, so today,
 the last 7 days, and the all-time totals cover every machine you code on —

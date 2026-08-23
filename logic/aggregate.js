@@ -386,6 +386,27 @@ function mergeProviderDisplay(record, stats, aggregateMeta) {
   }
 }
 
+// Narrows an already-built provider display list down to the ones that
+// should take up space in the bar itself. `enabled` still gates both the
+// panel and the bar (a disabled provider is never collected, so it never
+// has a display object to begin with, but honor it here too in case a
+// caller passes an unfiltered list). `showInBar` only gates the bar: a
+// provider with `enabled: true, showInBar: false` stays reachable as a
+// chip in the panel — callers building that chip list must keep using
+// `enabled` alone and not run the result through this function. Both flags
+// default to true, so a `shell.json` written before `showInBar` existed
+// (or one that never sets `enabled`) behaves exactly as it did before this
+// function existed.
+function selectBarProviders(providers, settings) {
+  var list = Array.isArray(providers) ? providers : []
+  var providerSettings = settings && settings.providers ? settings.providers : {}
+  return list.filter(function(p) {
+    var id = p && p.providerId
+    var cfg = id && providerSettings[id] ? providerSettings[id] : {}
+    return cfg.enabled !== false && cfg.showInBar !== false
+  })
+}
+
 // All-time keeps a quiet day from hiding an agent; today's counts admit a
 // machine whose only source is history.jsonl, which knows nothing older.
 function providerHasData(p) {
@@ -415,6 +436,7 @@ if (typeof module !== "undefined" && module.exports) {
     providerSnapshot: providerSnapshot,
     buildLocalSnapshot: buildLocalSnapshot,
     mergeProviderDisplay: mergeProviderDisplay,
+    selectBarProviders: selectBarProviders,
     providerHasData: providerHasData
   }
 }
