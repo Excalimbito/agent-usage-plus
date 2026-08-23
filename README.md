@@ -8,16 +8,11 @@ A fork of Omarchy's built-in `omarchy.agents` bar widget (Omarchy 4.0.0-1,
 plugin version 1.0.0), published standalone so it can evolve independently.
 
 The main thing this fork adds — a live meter and percentage per subscription
-right in the bar, instead of the stock version's single icon:
-
-![Claude and Codex meters in the bar](preview-bar.png)
-
-Click either one to open its panel:
-
-<img src="preview-claude.png" alt="Claude Code tab" width="300"> <img src="preview-codex.png" alt="Codex tab" width="300">
-
-Codex currently reports only a weekly limit (no session window), so its tab
-shows a single meter instead of the session+weekly pair Claude gets.
+side by side in the bar, instead of the stock version's single icon. Click
+one to open its panel: session and weekly limits, today's pace, the last
+week, and the model breakdown. Codex currently reports only a weekly limit
+(no session window), so its tab shows a single meter instead of the
+session+weekly pair Claude gets.
 
 Changes from the built-in version:
 
