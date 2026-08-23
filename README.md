@@ -173,13 +173,25 @@ top-level keys can be set with
 | `syncDir` | `""` | A folder synced by Syncthing, Dropbox, rsync, … |
 | `syncFileName` | `<hostname>.json` | This machine's snapshot file |
 | `syncDeviceId` | hostname | Stable device name inside the snapshot |
+| `warnThresholdPct` | `75` | Usage % at which meters switch to the warn color (1-99) |
+| `criticalThresholdPct` | `90` | Usage % at which meters switch to the critical (urgent) color (1-100) |
 
 Numbers need `--json`, or they land in `shell.json` as strings:
 
 ```bash
 omarchy bar set io.github.viganogabriele.agent-usage-plus refreshIntervalSec 300 --json
 omarchy bar set io.github.viganogabriele.agent-usage-plus syncDir '~/Sync/agent-usage'
+omarchy bar set io.github.viganogabriele.agent-usage-plus warnThresholdPct 60 --json
 ```
+
+Usage below `warnThresholdPct` reads in the normal foreground color; between
+`warnThresholdPct` and `criticalThresholdPct` it shows a warn color blended
+from the theme's foreground toward its urgent color (still derived from the
+active Omarchy theme, not a fixed hex); at or above `criticalThresholdPct`
+it shows the theme's full urgent color, same as before this setting existed.
+`warnThresholdPct` must stay below `criticalThresholdPct` to have any visible
+effect — if set at or above it, the warn state is skipped and usage jumps
+straight from normal to critical.
 
 Per-agent enablement is nested, and `set` writes its key literally rather
 than walking a dotted path — so pass the whole `providers` object as JSON (or
