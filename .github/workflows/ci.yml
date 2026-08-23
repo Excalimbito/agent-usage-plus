@@ -76,12 +76,15 @@ jobs:
           jq empty manifest.json
           ./scripts/check-manifest.sh manifest.json
 
-      # TODO: enable unconditionally once issue #02 lands and test/ always
-      # exists. Guarded for now because test/ doesn't exist on main yet.
-      - name: Run node --test test/ (if present)
+      # Issue #02 landed: test/ exists, and package.json's own "test" script
+      # already uses the glob form (a bare `node --test test/` directory arg
+      # fails to recurse on this Node version — it gets treated as a
+      # require()-able module path instead). Keep this guarded so a future
+      # revert of test/ doesn't fail CI outright.
+      - name: Run npm test (if test/ present)
         run: |
           if [ -d test ]; then
-            node --test test/
+            npm test
           else
-            echo "no test/ dir yet, skipping (see issue #02)"
+            echo "no test/ dir, skipping"
           fi
