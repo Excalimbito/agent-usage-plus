@@ -1490,7 +1490,10 @@ Panel {
 
           Column {
             id: usageSection
-            visible: root.expanded && !!root.provider && root.provider.recentDays && root.provider.recentDays.length > 0
+            // Replaced by the full labelled history chart in Details. A
+            // three-day mini-chart followed by a second chart was redundant
+            // and made both the data and the scrolling worse.
+            visible: false
             width: parent.width
             spacing: Style.spacing.md
 
@@ -1543,7 +1546,10 @@ Panel {
 
           Column {
             id: modelSection
-            visible: root.expanded && root.models.length > 0
+            // Keep Details focused on the time-series users can act on.
+            // Model totals remain available in the collector records and
+            // should return only with a purpose-built comparison view.
+            visible: false
             width: parent.width
             spacing: Style.spacing.md
 
@@ -1574,7 +1580,7 @@ Panel {
           // panel that never toggles it renders identically to before
           // this section existed.
           PanelSeparator {
-            visible: root.expanded
+            visible: false
             foreground: root.foreground
           }
 
