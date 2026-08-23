@@ -1,16 +1,19 @@
 # Agent Usage Plus collectors
 
-This is the plugin's **supported companion package** for providers whose
-authoritative API exposes an account/key budget. It is intentionally
+This is the plugin's **supported companion package** for providers with a
+useful account budget or subscription-usage source. It is intentionally
 dependency-free Python (3.10+) and does not send a credential anywhere other
-than that provider's documented HTTPS endpoint. The plugin remains usable
-without it; these collectors publish additional records into the same state
-directory the panel already watches.
+than the corresponding provider endpoint. The plugin remains usable without
+it; these collectors publish additional records into the same state directory
+the panel already watches.
 
 | Provider | What the collector reads | First-class credential state |
 |---|---|---|
 | OpenRouter | current API key's optional spending limit, remaining budget, and usage from `GET /api/v1/auth/key` | `OPENROUTER_API_KEY` or `collectors.json` entry; otherwise **Waiting for API key** tells the user exactly how to set one |
 | DeepSeek | account's available credit ledger from `GET /user/balance` | `DEEPSEEK_API_KEY` or `collectors.json` entry; otherwise **Waiting for API key** tells the user exactly how to set one |
+| Gemini | Gemini CLI's Code Assist model quota buckets from `cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota` | Gemini CLI Google sign-in credentials in `~/.gemini/oauth_creds.json`, or an explicit short-lived `GEMINI_ACCESS_TOKEN`; otherwise **Waiting for Gemini sign-in** explains the required Google-login flow |
+| Cursor | personal subscription pools from Cursor dashboard's `GET /api/usage-summary`, using the locally signed-in Cursor IDE or `cursor-agent` session | Cursor IDE/cursor-agent sign-in; otherwise **Waiting for Cursor sign-in** tells the user to sign in locally. Team accounts without a per-user meter report a clear unavailable status rather than an invented percentage |
+| Kimi | weekly Coding Plan quota and any 5-hour rolling window from `GET /coding/v1/usages` | `KIMI_API_KEY` or `collectors.json` entry; otherwise **Waiting for API key** gives the exact setup path |
 | Claude Code | existing local transcript collector, decorated with published API pricing | no new credential; the base Claude collector retains its own sign-in state |
 | Codex | existing local transcript collector, decorated with published API pricing | no new credential; the base Codex collector retains its own sign-in state |
 
@@ -32,13 +35,14 @@ From a clone of this repository:
 ~/.local/share/agent-usage-plus-collectors/bin/agent-usage-plus-collectors update
 ```
 
-The runner atomically writes `openrouter.json` and `deepseek.json` under
+The runner atomically writes `openrouter.json`, `deepseek.json`, `gemini.json`,
+`cursor.json`, and `kimi.json` under
 `$XDG_STATE_HOME/omarchy/agents/usage` (default
 `~/.local/state/omarchy/agents/usage`). Run either collector directly when
 you want to inspect only its JSON output:
 
 ```bash
-~/.local/share/omarchy/agent-usage-plus-collectors/bin/omarchy-agent-usage-openrouter
+~/.local/share/agent-usage-plus-collectors/bin/omarchy-agent-usage-openrouter
 ```
 
 To refresh in the background without modifying Omarchy, install the optional
@@ -95,6 +99,7 @@ Use an environment variable for a one-off/manual run:
 ```bash
 export OPENROUTER_API_KEY='…'
 export DEEPSEEK_API_KEY='…'
+export KIMI_API_KEY='…'
 ```
 
 For a user timer, where an interactive shell's environment is usually not
@@ -103,7 +108,8 @@ available, create this **mode 600** file instead:
 ```json
 {
   "openrouter": { "apiKey": "…" },
-  "deepseek": { "apiKey": "…" }
+  "deepseek": { "apiKey": "…" },
+  "kimi": { "apiKey": "…" }
 }
 ```
 
@@ -119,23 +125,28 @@ sets `retryAdvised: true`; a real 4xx/5xx provider response does not retry
 aggressively. A successful call is account-scoped and leaves local token
 stats absent rather than inventing transcript numbers the APIs do not offer.
 
-## Why only these two right now
+## Endpoint stability and provider coverage
 
-This package adds providers only when it can publish a useful authoritative
-record. Gemini API documents API-key/OAuth authentication but not a
-user-level usage/balance API; Cursor's public API likewise does not expose a
-personal subscription meter; and Z.AI documents API-key and Coding Plan
-endpoints but directs plan limits to its web console. A “collector” that only
-checks for a key would add a misleading zero meter, so those remain explicitly
-unsupported until a documented source exists. Relevant provider references:
-[Gemini API keys](https://ai.google.dev/gemini-api/docs/api-key), [Z.AI
-Coding Plan setup](https://docs.z.ai/devpack/quick-start), and [Z.AI FAQ on
-rate limits](https://docs.z.ai/help/faq).
+OpenRouter and DeepSeek are documented provider APIs. Gemini's Code Assist
+quota RPC is called by the [official Gemini CLI source](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/code_assist/server.ts),
+but is not a public API contract. Cursor's `usage-summary` route is the
+dashboard's own undocumented endpoint, and Kimi's Coding Plan route is
+community-confirmed rather than formally documented. The three parsers fail
+closed on an unfamiliar response: the panel shows “usage unavailable” instead
+of a fabricated zero meter. Their exact expected response shapes are covered
+by offline tests.
+
+Gemini API-key and Vertex API usage are deliberately not represented by the
+Gemini subscription collector: Google exposes per-project billing/quota in its
+Cloud console, not a universal account-level balance endpoint. Likewise,
+Cursor team accounts that omit `individualUsage.plan` do not have a usable
+per-seat percentage in this endpoint. Those states are shown plainly, rather
+than being mistaken for no usage.
 
 ## Development
 
 ```bash
-python -m unittest discover -s collectors/tests -v
+cd collectors && PYTHONPATH=. python -m unittest discover -s tests -v
 ```
 
 Tests exercise parsing and every error-state classification without a real
