@@ -428,6 +428,16 @@ Panel {
     return dayName(date)
   }
 
+  // The switch deliberately gives every provider the same hit target. A
+  // plain Text inside qs.Ui.Button does not elide by itself, so cap its
+  // visible label here instead of letting a long collector-supplied name
+  // bleed into the next chip. The full name remains the hero title when the
+  // chip is selected.
+  function providerChipLabel(provider) {
+    var name = String(provider && provider.providerName || "")
+    return name.length > 14 ? name.slice(0, 13) + "…" : name
+  }
+
   function dayTooltip(day, today) {
     if (!day) return ""
     var parsed = new Date(String(day.date) + "T00:00:00")
@@ -1054,7 +1064,8 @@ Panel {
             // Fixed-size, horizontally scrollable chips preserve provider
             // names as coverage grows. The old equal-width row made every
             // name narrower with each added provider, eventually turning the
-            // subscription switch into an unlabeled strip of buttons.
+            // subscription switch into an unlabeled strip of buttons. Cap
+            // text at the chip boundary as Button itself does not elide it.
             Row {
               id: providerChipRow
               spacing: Style.spacing.md
@@ -1068,7 +1079,7 @@ Panel {
                   required property int index
 
                   width: Style.space(120)
-                  text: modelData.providerName
+                  text: root.providerChipLabel(modelData)
                   selected: index === root.providerIndex
                   hasCursor: root.cursorActive && index === root.providerIndex
                   bordered: true
