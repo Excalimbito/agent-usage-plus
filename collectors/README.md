@@ -29,7 +29,7 @@ From a clone of this repository:
 
 ```bash
 ./collectors/install.sh
-~/.local/share/omarchy/agent-usage-plus-collectors/bin/agent-usage-plus-collectors update
+~/.local/share/agent-usage-plus-collectors/bin/agent-usage-plus-collectors update
 ```
 
 The runner atomically writes `openrouter.json` and `deepseek.json` under

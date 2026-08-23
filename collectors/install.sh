@@ -6,7 +6,9 @@ set -euo pipefail
 # it never edits Omarchy's updater or plugin files.
 
 source_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-data_root=${XDG_DATA_HOME:-"$HOME/.local/share"}/omarchy/agent-usage-plus-collectors
+# Omarchy may expose ~/.local/share/omarchy as a symlink to its root-owned
+# packaged assets. Keep this companion package in its own XDG-data directory.
+data_root=${XDG_DATA_HOME:-"$HOME/.local/share"}/agent-usage-plus-collectors
 omarchy_bin=""
 enable_timer=false
 with_transcript_cost=false
@@ -15,7 +17,7 @@ usage() {
   cat <<'EOF'
 Usage: ./collectors/install.sh [--omarchy-bin DIR] [--enable-timer] [--with-transcript-cost]
 
-Installs collectors into $XDG_DATA_HOME/omarchy/agent-usage-plus-collectors.
+Installs collectors into $XDG_DATA_HOME/agent-usage-plus-collectors.
 --omarchy-bin DIR additionally links the two omarchy-agent-usage-* commands
 into a writable Omarchy bin directory so Omarchy's usage updater invokes them.
 --enable-timer installs a 10-minute user-level systemd timer for the standalone
