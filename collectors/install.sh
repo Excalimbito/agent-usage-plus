@@ -45,7 +45,8 @@ if $with_transcript_cost && [[ -z $omarchy_bin ]]; then
 fi
 
 mkdir -p "$data_root"
-cp -a "$source_root/agent_usage_collectors" "$data_root/"
+mkdir -p "$data_root/agent_usage_collectors"
+cp -a "$source_root/agent_usage_collectors/." "$data_root/agent_usage_collectors/"
 mkdir -p "$data_root/bin"
 cp -a "$source_root/bin/." "$data_root/bin/"
 mkdir -p "$data_root/scripts" "$data_root/logic"
