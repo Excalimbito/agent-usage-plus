@@ -25,12 +25,47 @@ def helper_path() -> Path | None:
     return next((candidate for candidate in candidates if candidate.is_file()), None)
 
 
+def normalise_today_buckets(record: dict[str, Any]) -> None:
+    """Upgrade old base collectors' scalar daily totals to the contract shape.
+
+    Older Omarchy scanners only retain a per-model total for today. It cannot
+    reconstruct a historic input/output/cache split, so preserve the total in
+    ``inputTokens`` and make the unknown split explicit as zeroes. Newer
+    bucket-shaped values pass through with every required key present.
+    """
+    raw = record.get("todayTokensByModel")
+    if not isinstance(raw, dict):
+        return
+    buckets: dict[str, dict[str, int]] = {}
+    for model, value in raw.items():
+        if isinstance(value, dict):
+            buckets[str(model)] = {
+                "inputTokens": int(value.get("inputTokens") or 0),
+                "outputTokens": int(value.get("outputTokens") or 0),
+                "cacheReadInputTokens": int(value.get("cacheReadInputTokens") or 0),
+                "cacheCreationInputTokens": int(value.get("cacheCreationInputTokens") or 0),
+            }
+        else:
+            try:
+                total = max(0, int(value or 0))
+            except (TypeError, ValueError):
+                total = 0
+            buckets[str(model)] = {
+                "inputTokens": total,
+                "outputTokens": 0,
+                "cacheReadInputTokens": 0,
+                "cacheCreationInputTokens": 0,
+            }
+    record["todayTokensByModel"] = buckets
+
+
 def decorate(record: dict[str, Any], provider: str, period: str) -> dict[str, Any]:
     """Add a complete, exact-price estimate, or leave cost absent.
 
     The estimator rejects a partial total when a used transcript model is
     unknown. The base record remains useful and authoritative in that case.
     """
+    normalise_today_buckets(record)
     helper = helper_path()
     if helper is None:
         return record

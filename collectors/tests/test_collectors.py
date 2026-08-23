@@ -6,7 +6,7 @@ from urllib.error import HTTPError, URLError
 from agent_usage_collectors.common import base_record, classify_failure
 from agent_usage_collectors.deepseek import record_from_payload as deepseek_record
 from agent_usage_collectors.openrouter import record_from_payload as openrouter_record
-from agent_usage_collectors.transcript_cost import decorate
+from agent_usage_collectors.transcript_cost import decorate, normalise_today_buckets
 
 
 class CollectorParsingTests(unittest.TestCase):
@@ -59,6 +59,16 @@ class CollectorParsingTests(unittest.TestCase):
             },
         }, "codex", "Local transcript history")
         self.assertNotIn("cost", record)
+
+    def test_transcript_cost_decorator_upgrades_old_daily_scalar_totals(self) -> None:
+        record = {"todayTokensByModel": {"model": 42}}
+        normalise_today_buckets(record)
+        self.assertEqual(record["todayTokensByModel"]["model"], {
+            "inputTokens": 42,
+            "outputTokens": 0,
+            "cacheReadInputTokens": 0,
+            "cacheCreationInputTokens": 0,
+        })
 
 
 if __name__ == "__main__":
