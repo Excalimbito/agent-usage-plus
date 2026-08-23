@@ -1,0 +1,277 @@
+#!/usr/bin/env bash
+# agent-usage-doctor — validate a usage record against docs/collector-contract.md
+#
+# Usage:
+#   agent-usage-doctor <path/to/record.json>
+#   cat record.json | agent-usage-doctor
+#   some-collector --dump-json | agent-usage-doctor
+#
+# Exits 0 when the input is a structurally valid usage record (including the
+# two documented error states: auth-missing and endpoint-unreachable — those
+# are contractually legitimate shapes, not malformed input). Exits 1 on a
+# structural problem, printing specific, actionable errors. Exits 2 on usage
+# errors (bad arguments, missing file) or if `jq` isn't installed.
+#
+# This is a targeted validator for this repo's collector contract, not a
+# general-purpose JSON Schema tool — see docs/collector-contract.md for the
+# authoritative field list this script checks against.
+
+set -euo pipefail
+
+prog="agent-usage-doctor"
+
+usage() {
+  cat <<EOF >&2
+Usage:
+  $prog <path/to/record.json>
+  cat record.json | $prog
+
+Validates a collector's usage record against docs/collector-contract.md.
+EOF
+}
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "$prog: jq is required but was not found on PATH" >&2
+  exit 2
+fi
+
+if [ "$#" -gt 1 ]; then
+  usage
+  exit 2
+fi
+
+if [ "$#" -eq 1 ]; then
+  if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    usage
+    exit 0
+  fi
+  input_path="$1"
+  if [ ! -f "$input_path" ]; then
+    echo "$prog: file not found: $input_path" >&2
+    exit 2
+  fi
+  source_label="$input_path"
+  raw="$(cat -- "$input_path")"
+else
+  source_label="<stdin>"
+  raw="$(cat)"
+fi
+
+if [ -z "${raw//[$'\t\r\n ']/}" ]; then
+  echo "$prog: $source_label: empty input" >&2
+  exit 1
+fi
+
+# 1. Confirm it's parseable JSON at all, with a specific parser error.
+parse_err="$(printf '%s' "$raw" | jq empty 2>&1 >/dev/null || true)"
+if [ -n "$parse_err" ]; then
+  echo "$prog: $source_label: invalid JSON" >&2
+  echo "  $parse_err" >&2
+  exit 1
+fi
+
+# 2. Validate the parsed record's shape against the collector contract.
+#
+# Field names/types/requiredness below mirror docs/collector-contract.md
+# exactly. Two notes baked into the checks:
+#   - `recentDays[].messageCount` is documented as actually holding a token
+#     total (a legacy name kept for compatibility) — it's only ever checked
+#     here for being a non-negative integer, never flagged as "suspicious"
+#     for holding large token-sized values.
+#   - The documented per-record caps (<=20 limits, <=31 recentDays,
+#     <=400 activeDates, <=100 modelUsage/todayTokensByModel ids) are things
+#     the panel truncates defensively at render time, not a rule the JSON
+#     itself must satisfy to be a valid record — so exceeding them is a
+#     warning, not an error.
+read -r -d '' validator_jq <<'JQ_EOF' || true
+def trunc(n):
+  if type == "string" then
+    (if (length > n) then (.[0:n] + "...") else . end)
+  else . end;
+
+def is_int:
+  type == "number" and (. == (. | floor));
+
+def is_nonneg_int:
+  is_int and . >= 0;
+
+def iso_date:
+  type == "string" and test("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$");
+
+def iso_datetime:
+  type == "string" and test("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})$");
+
+def id_charset:
+  type == "string" and test("^[A-Za-z0-9_-]{1,64}$");
+
+# Cap a list of per-item error strings so one badly-shaped array doesn't
+# flood the report: show the first few concrete examples, then a summary.
+def summarize(kind):
+  if length == 0 then []
+  elif length <= 3 then .
+  else (.[0:3] + ["...and \(length - 3) more \(kind) errors (not shown)"])
+  end;
+
+def cap_warn(field; arr; max):
+  if (arr|type) == "array" and (arr|length) > max then
+    ["`\(field)` has \(arr|length) entries; the panel keeps at most \(max) and drops the rest"]
+  else [] end;
+
+def cap_warn_obj(field; obj; max):
+  if (obj|type) == "object" and (obj|length) > max then
+    ["`\(field)` has \(obj|length) entries; the panel keeps at most \(max) distinct ids and drops the rest"]
+  else [] end;
+
+# --- per-section validators, each returning an array of error strings ---
+
+def check_id($r):
+  if ($r|has("id")|not) then ["missing required field `id`"]
+  elif ($r.id|type) != "string" then ["`id` must be a string (got \($r.id|type))"]
+  elif ($r.id|id_charset|not) then ["`id` must match ^[A-Za-z0-9_-]{1,64}$ (got: \($r.id|trunc(50)|tojson), \($r.id|length) chars)"]
+  else [] end;
+
+def check_scalars($r):
+  [
+    (if ($r|has("name")) and ($r.name|type) != "string" then "`name` must be a string (got \($r.name|type))" else empty end),
+    (if ($r|has("schemaVersion")) and ($r.schemaVersion|is_int|not) then "`schemaVersion` must be an integer" else empty end),
+    (if ($r|has("updatedAt")) and ($r.updatedAt != "") and ($r.updatedAt|iso_datetime|not) then "`updatedAt` is not ISO-8601 (got: \($r.updatedAt|trunc(40)|tojson))" else empty end),
+    (["ready","hasLocalStats","hasPromptStats","retryAdvised"][] as $f
+      | if ($r|has($f)) and ($r[$f]|type) != "boolean" then "`\($f)` must be a boolean (got \($r[$f]|type))" else empty end),
+    (if ($r|has("scope")) and ([$r.scope] - ["device","account"] | length) > 0 then "`scope` must be \"device\" or \"account\" (got: \($r.scope|tojson))" else empty end),
+    (["tierLabel","usageStatusText","authHelpText"][] as $f
+      | if ($r|has($f)) and ($r[$f]|type) != "string" then "`\($f)` must be a string (got \($r[$f]|type))" else empty end),
+    (["todayPrompts","todaySessions","todayTotalTokens","totalPrompts","totalSessions","activeDays"][] as $f
+      | if ($r|has($f)) and ($r[$f]|is_nonneg_int|not) then "`\($f)` must be a non-negative integer (got: \($r[$f]|tojson))" else empty end)
+  ];
+
+def check_limits($r):
+  if ($r|has("limits")|not) then []
+  elif ($r.limits|type) != "array" then ["`limits` must be an array (got \($r.limits|type))"]
+  else
+    ([range(0; ($r.limits|length)) as $i
+      | ($r.limits[$i]) as $entry
+      | if ($entry|type) != "object" then "`limits[\($i)]` must be an object (got \($entry|type))"
+        elif ($entry|has("percent")|not) then "`limits[\($i)].percent` is required (missing)"
+        elif ($entry.percent|type) != "number" then "`limits[\($i)].percent` must be a number (got \($entry.percent|type))"
+        elif ($entry.percent < 0 or $entry.percent > 1) then "`limits[\($i)].percent` must be between 0.0 and 1.0 (got: \($entry.percent))"
+        elif ($entry|has("label")) and ($entry.label|type) != "string" then "`limits[\($i)].label` must be a string"
+        elif ($entry|has("title")) and ($entry.title|type) != "string" then "`limits[\($i)].title` must be a string"
+        elif ($entry|has("resetsAt")) and ($entry.resetsAt != "") and ($entry.resetsAt|iso_datetime|not) then "`limits[\($i)].resetsAt` is not ISO-8601 (got: \($entry.resetsAt|trunc(40)|tojson))"
+        else empty
+        end] | summarize("limits"))
+  end;
+
+def check_balance($r):
+  if ($r|has("balance")|not) then []
+  elif ($r.balance|type) != "object" then ["`balance` must be an object (got \($r.balance|type))"]
+  elif ($r.balance|has("remaining")|not) then ["`balance.remaining` is required when `balance` is present"]
+  elif ($r.balance.remaining|type) != "number" then ["`balance.remaining` must be a number (got \($r.balance.remaining|type))"]
+  elif ($r.balance.remaining < 0) then ["`balance.remaining` must be >= 0 (got: \($r.balance.remaining))"]
+  else
+    [
+      (if ($r.balance|has("funded")) and ($r.balance.funded|type) != "number" then "`balance.funded` must be a number" else empty end),
+      (if ($r.balance|has("spent")) and ($r.balance.spent|type) != "number" then "`balance.spent` must be a number" else empty end),
+      (if ($r.balance|has("currency")) and ($r.balance.currency|type) != "string" then "`balance.currency` must be a string" else empty end),
+      (if ($r.balance|has("estimated")) and ($r.balance.estimated|type) != "boolean" then "`balance.estimated` must be a boolean" else empty end)
+    ]
+  end;
+
+# `todayTokensByModel` is documented as a flat integer per model id. Some
+# real-world records (including this repo's own -ok.json fixtures) instead
+# put a full TokenBucket object here, matching `modelUsage`'s shape. Accept
+# both so the doctor doesn't reject data the panel itself tolerates, but
+# still catch anything that's neither.
+def check_today_tokens_by_model($r):
+  if ($r|has("todayTokensByModel")|not) then []
+  elif ($r.todayTokensByModel|type) != "object" then ["`todayTokensByModel` must be an object (got \($r.todayTokensByModel|type))"]
+  else
+    ([$r.todayTokensByModel|to_entries[] as $e
+      | if ($e.value|is_nonneg_int) then empty
+        elif ($e.value|type) == "object" then
+          (["inputTokens","outputTokens","cacheReadInputTokens","cacheCreationInputTokens"][] as $f
+           | if ($e.value|has($f)) and ($e.value[$f]|is_nonneg_int|not) then "`todayTokensByModel.\($e.key).\($f)` must be a non-negative integer (got: \($e.value[$f]|tojson))" else empty end)
+        else "`todayTokensByModel.\($e.key)` must be a non-negative integer (got: \($e.value|tojson))"
+        end] | summarize("todayTokensByModel"))
+  end;
+
+def check_recent_days($r):
+  if ($r|has("recentDays")|not) then []
+  elif ($r.recentDays|type) != "array" then ["`recentDays` must be an array (got \($r.recentDays|type))"]
+  else
+    ([range(0; ($r.recentDays|length)) as $i
+      | ($r.recentDays[$i]) as $entry
+      | if ($entry|type) != "object" then "`recentDays[\($i)]` must be an object (got \($entry|type))"
+        elif ($entry|has("date")|not) then "`recentDays[\($i)].date` is required (missing)"
+        elif ($entry.date|iso_date|not) then "`recentDays[\($i)].date` is not ISO-8601 (YYYY-MM-DD) (got: \($entry.date|trunc(30)|tojson))"
+        elif ($entry|has("messageCount")) and ($entry.messageCount|is_nonneg_int|not) then "`recentDays[\($i)].messageCount` must be a non-negative integer (got: \($entry.messageCount|tojson))"
+        else empty
+        end] | summarize("recentDays"))
+  end;
+
+def check_active_dates($r):
+  if ($r|has("activeDates")|not) then []
+  elif ($r.activeDates|type) != "array" then ["`activeDates` must be an array (got \($r.activeDates|type))"]
+  else
+    ([range(0; ($r.activeDates|length)) as $i
+      | ($r.activeDates[$i]) as $d
+      | if ($d|iso_date|not) then "`activeDates[\($i)]` is not ISO-8601 (YYYY-MM-DD) (got: \($d|trunc(30)|tojson))" else empty end]
+     | summarize("activeDates"))
+  end;
+
+def check_model_usage($r):
+  if ($r|has("modelUsage")|not) then []
+  elif ($r.modelUsage|type) != "object" then ["`modelUsage` must be an object (got \($r.modelUsage|type))"]
+  else
+    ([$r.modelUsage|to_entries[] as $e
+      | if ($e.value|type) != "object" then "`modelUsage.\($e.key)` must be an object (got \($e.value|type))"
+        else
+          (["inputTokens","outputTokens","cacheReadInputTokens","cacheCreationInputTokens"][] as $f
+           | if ($e.value|has($f)) and ($e.value[$f]|is_nonneg_int|not) then "`modelUsage.\($e.key).\($f)` must be a non-negative integer (got: \($e.value[$f]|tojson))" else empty end)
+        end] | summarize("modelUsage"))
+  end;
+
+def all_warnings($r):
+  (cap_warn("limits"; ($r.limits // []); 20))
+  + (cap_warn("recentDays"; ($r.recentDays // []); 31))
+  + (cap_warn("activeDates"; ($r.activeDates // []); 400))
+  + (cap_warn_obj("todayTokensByModel"; ($r.todayTokensByModel // {}); 100))
+  + (cap_warn_obj("modelUsage"; ($r.modelUsage // {}); 100));
+
+. as $r
+| if ($r | type) != "object" then
+    { errors: ["top-level value must be a JSON object (got \($r|type))"], warnings: [] }
+  else
+    {
+      errors: (
+        check_id($r)
+        + check_scalars($r)
+        + check_limits($r)
+        + check_balance($r)
+        + check_today_tokens_by_model($r)
+        + check_recent_days($r)
+        + check_active_dates($r)
+        + check_model_usage($r)
+      ),
+      warnings: all_warnings($r)
+    }
+  end
+JQ_EOF
+
+result="$(printf '%s' "$raw" | jq -c "$validator_jq")"
+
+error_count="$(printf '%s' "$result" | jq -r '.errors | length')"
+warning_count="$(printf '%s' "$result" | jq -r '.warnings | length')"
+
+if [ "$error_count" -gt 0 ]; then
+  echo "$prog: $source_label: FAIL ($error_count error(s))" >&2
+  printf '%s' "$result" | jq -r '.errors[] | "  - " + .' >&2
+  exit 1
+fi
+
+if [ "$warning_count" -gt 0 ]; then
+  printf '%s' "$result" | jq -r '.warnings[] | "  ! " + .' >&2
+fi
+
+record_id="$(printf '%s' "$raw" | jq -r 'if (type == "object") and has("id") then .id else "?" end')"
+echo "$prog: $source_label: OK — \"$record_id\" is a structurally valid usage record"
+exit 0

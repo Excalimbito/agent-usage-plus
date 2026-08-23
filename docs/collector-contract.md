@@ -8,6 +8,14 @@ change to pick it up.
 You should be able to write a working collector from this file alone,
 without reading any QML or any of Omarchy's own collectors.
 
+Once you've written a record, check its shape without installing the
+plugin: `scripts/agent-usage-doctor <path/to/record.json>` (or pipe it in
+via stdin) validates it against this contract and prints specific,
+actionable errors — e.g. a bad `id` charset or a `recentDays[i].date` that
+isn't ISO-8601 — rather than a generic "invalid JSON" dump. It also treats
+the two documented error states below (auth missing, endpoint down) as
+structurally valid, since they're legitimate shapes, not malformed input.
+
 ## Where the record lives
 
 Each agent is one JSON file at:
