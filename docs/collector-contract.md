@@ -274,14 +274,14 @@ bar glyph. To ship one:
   Claude's brand orange) doesn't need one.
 
 `<id>` here is exactly the same id as the record's `id` field and the
-`<id>.json` filename — there is no separate registration step. The panel
-resolves `assets/<id>-light.svg` first when the current surface is light
-(by relative luminance ≥ 0.5), falling back to `assets/<id>.svg`, falling
-back again to a plain glyph if neither loads. `<id>` is re-validated against
-`[A-Za-z0-9_-]{1,64}` at the point these paths get built, since it's
-concatenated directly into a resource URL — so don't rely on any character
-outside that set surviving into an icon path even if you used it in the
-record's `id`.
+`<id>.json` filename. Add the new file name to `Panel.qml`'s
+`providerIconAssets` registry in the same change: QML otherwise has no safe
+way to test a relative asset URL before loading it, and a missing URL becomes
+a runtime warning. The panel resolves a registered `-light` twin first on a
+light surface (by relative luminance ≥ 0.5), then the registered default;
+an unregistered provider deliberately falls back to a plain glyph without
+attempting an asset URL. `<id>` is re-validated against
+`[A-Za-z0-9_-]{1,64}` at the point these paths are considered.
 
 These asset files live in *this repository* (`assets/`), not with your
 collector — since a third-party collector, by design, never touches this
