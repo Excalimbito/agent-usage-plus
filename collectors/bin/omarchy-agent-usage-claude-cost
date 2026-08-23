@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+"""Run Omarchy's Claude scanner and add its derived local API-rate estimate."""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from agent_usage_collectors.transcript_cost import decorate  # noqa: E402
+
+base = os.environ.get("AGENT_USAGE_PLUS_CLAUDE_BASE_COLLECTOR", "/usr/share/omarchy/bin/omarchy-agent-usage-claude")
+try:
+    result = subprocess.run([base, *sys.argv[1:]], text=True, capture_output=True, check=True, timeout=90)
+    record = json.loads(result.stdout)
+    if not isinstance(record, dict):
+        raise ValueError("base collector did not emit an object")
+    print(json.dumps(decorate(record, "claude", "Local transcript history"), separators=(",", ":")))
+except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError) as exc:
+    print(json.dumps({"id": "claude", "name": "Claude Code", "ready": False, "usageStatusText": "Claude collector unavailable", "authHelpText": f"Install Claude Code or set AGENT_USAGE_PLUS_CLAUDE_BASE_COLLECTOR. ({type(exc).__name__})"}, separators=(",", ":")))

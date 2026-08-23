@@ -11,6 +11,8 @@ directory the panel already watches.
 |---|---|---|
 | OpenRouter | current API key's optional spending limit, remaining budget, and usage from `GET /api/v1/auth/key` | `OPENROUTER_API_KEY` or `collectors.json` entry; otherwise **Waiting for API key** tells the user exactly how to set one |
 | DeepSeek | account's available credit ledger from `GET /user/balance` | `DEEPSEEK_API_KEY` or `collectors.json` entry; otherwise **Waiting for API key** tells the user exactly how to set one |
+| Claude Code | existing local transcript collector, decorated with published API pricing | no new credential; the base Claude collector retains its own sign-in state |
+| Codex | existing local transcript collector, decorated with published API pricing | no new credential; the base Codex collector retains its own sign-in state |
 
 Both endpoint references are provider documentation: [OpenRouter current-key
 metadata](https://openrouter.ai/docs/api/api-reference/api-keys/get-current-key)
@@ -59,6 +61,29 @@ Omarchy's updater. If your distribution's `$OMARCHY_PATH/bin` is
 root-owned (as `/usr/share/omarchy/bin` normally is), use the timer, or ask
 your system administrator to install the two symlinks. Re-run `install.sh`
 after updating this repository; it replaces only its own package and symlinks.
+
+## Claude and Codex API-cost estimates
+
+`omarchy-agent-usage-claude-cost` and `omarchy-agent-usage-codex-cost` run an
+existing local transcript collector, then add the versioned `cost` block from
+the repository's official-rate catalogue. They never send transcript content,
+credentials, or usage to a network endpoint. A used model without an exact
+price intentionally produces no partial dollar total.
+
+Run either wrapper directly to inspect the resulting record. The Claude
+wrapper defaults to Omarchy's packaged scanner. For Codex or a custom scanner,
+point it at the preserved base executable:
+
+```bash
+AGENT_USAGE_PLUS_CODEX_BASE_COLLECTOR="$HOME/.local/bin/omarchy-agent-usage-codex" \
+  ./collectors/bin/omarchy-agent-usage-codex-cost | jq '.cost'
+```
+
+The optional `--with-transcript-cost` installer flag will only add updater
+wrappers when those target names are free; it deliberately refuses to
+overwrite your existing Claude/Codex collectors. See
+[`../docs/cost-estimation.md`](../docs/cost-estimation.md) for price-list
+version and model-coverage rules.
 
 ## Credentials and error states
 

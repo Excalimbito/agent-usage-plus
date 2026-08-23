@@ -6,6 +6,7 @@ from urllib.error import HTTPError, URLError
 from agent_usage_collectors.common import base_record, classify_failure
 from agent_usage_collectors.deepseek import record_from_payload as deepseek_record
 from agent_usage_collectors.openrouter import record_from_payload as openrouter_record
+from agent_usage_collectors.transcript_cost import decorate
 
 
 class CollectorParsingTests(unittest.TestCase):
@@ -34,6 +35,30 @@ class CollectorParsingTests(unittest.TestCase):
         self.assertEqual(rejected["usageStatusText"], "API key rejected")
         self.assertNotIn("retryAdvised", rejected)
         self.assertTrue(network["retryAdvised"])
+
+    def test_transcript_cost_decorator_uses_complete_known_model_pricing(self) -> None:
+        record = decorate({
+            "id": "claude",
+            "modelUsage": {
+                "claude-sonnet-5": {
+                    "inputTokens": 1_000_000,
+                    "outputTokens": 1_000_000,
+                    "cacheReadInputTokens": 1_000_000,
+                    "cacheCreationInputTokens": 1_000_000,
+                },
+            },
+        }, "claude", "Local transcript history")
+        self.assertEqual(record["cost"]["estimateUsd"], 14.7)
+
+    def test_transcript_cost_decorator_refuses_a_partial_unknown_model_total(self) -> None:
+        record = decorate({
+            "id": "codex",
+            "modelUsage": {
+                "gpt-5.6-sol": {"inputTokens": 1},
+                "unpriced-model": {"outputTokens": 1},
+            },
+        }, "codex", "Local transcript history")
+        self.assertNotIn("cost", record)
 
 
 if __name__ == "__main__":
