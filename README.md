@@ -135,13 +135,19 @@ cross-device aggregation); `Agent.qml` is the per-record file watcher.
 
 A subscription appears only when it is enabled in settings and has actually
 recorded usage — on this machine or on a synced one. With one such agent
-there is no switch row at all; with none, the module leaves the bar entirely
-rather than sitting there with nothing to say. A CLI installed mid-session
-shows up at the next refresh, so nothing polls the disk waiting for it.
+there is no switch row at all; with none ever discovered, the module leaves
+the bar entirely rather than sitting there with nothing to say. A CLI
+installed mid-session shows up at the next refresh, so nothing polls the
+disk waiting for it.
 
-That self-hiding is why the widget ships in the default bar layout: a machine
-that has never run an AI coding agent draws nothing, and the icon arrives on
-its own the first time a scan finds usage. Drop it with
+That self-hiding is why the widget ships in the default bar layout: a
+machine that has never run an AI coding agent draws nothing, and the icon
+arrives on its own the first time a scan finds usage. Once something has
+been discovered, though, the icon stays — even if every subscription is
+later disabled or hidden from the bar, it falls back to the module's own
+glyph rather than disappearing, so its settings (and the way back to
+turning something on) are never one click short of reachable. Drop the
+whole widget with
 `omarchy plugin disable io.github.viganogabriele.agent-usage-plus`.
 
 ## Data
