@@ -1,0 +1,274 @@
+"use strict"
+
+const test = require("node:test")
+const assert = require("node:assert/strict")
+const fs = require("node:fs")
+const path = require("node:path")
+
+const Aggregate = require("../logic/aggregate.js")
+
+const fixturesDir = path.join(__dirname, "fixtures")
+
+function readFixtureText(name) {
+  return fs.readFileSync(path.join(fixturesDir, name), "utf8")
+}
+
+function readFixture(name) {
+  return JSON.parse(readFixtureText(name))
+}
+
+// ---------------------------------------------------------------- fixtures
+
+test("fixtures: every *-ok / error / sync fixture is valid JSON", () => {
+  const validFixtures = [
+    "claude-ok.json",
+    "codex-ok.json",
+    "fireworks-ok.json",
+    "claude-auth-error.json",
+    "codex-endpoint-down.json",
+    "sync-snapshot-two-devices.json",
+    "oversized.json"
+  ]
+  for (const name of validFixtures) {
+    assert.doesNotThrow(() => readFixture(name), `${name} should be valid JSON`)
+  }
+})
+
+test("fixtures: malformed.json is deliberately invalid JSON", () => {
+  assert.throws(() => JSON.parse(readFixtureText("malformed.json")), SyntaxError)
+})
+
+// --------------------------------------------------------- provider records
+
+test("mergeProviderDisplay: a healthy Claude record keeps its session+weekly limits", () => {
+  const record = readFixture("claude-ok.json")
+  const display = Aggregate.mergeProviderDisplay(record, null, null)
+  assert.equal(display.providerId, "claude")
+  assert.equal(display.ready, true)
+  assert.equal(display.limits.length, 2)
+  assert.equal(display.limits[0].label, "Session")
+  assert.equal(display.limits[1].label, "Weekly")
+  assert.equal(display.syncEnabled, false)
+  assert.ok(Aggregate.providerHasData(display))
+})
+
+test("mergeProviderDisplay: Codex reports a single weekly-only limit", () => {
+  const record = readFixture("codex-ok.json")
+  const display = Aggregate.mergeProviderDisplay(record, null, null)
+  assert.equal(display.limits.length, 1)
+  assert.equal(display.limits[0].label, "Weekly")
+})
+
+test("mergeProviderDisplay: Fireworks reports a balance instead of limits", () => {
+  const record = readFixture("fireworks-ok.json")
+  const display = Aggregate.mergeProviderDisplay(record, null, null)
+  assert.equal(display.limits.length, 0)
+  assert.ok(display.balance)
+  assert.equal(display.balance.remaining, 12.34)
+  assert.equal(display.balance.funded, 20)
+  assert.equal(display.balance.estimated, true)
+  assert.ok(Aggregate.providerHasData(display)) // balance alone counts as data
+})
+
+test("mergeProviderDisplay: a Claude auth error keeps status/help text and drops limits", () => {
+  const record = readFixture("claude-auth-error.json")
+  const display = Aggregate.mergeProviderDisplay(record, null, null)
+  assert.equal(display.ready, false)
+  assert.equal(display.limits.length, 0)
+  assert.match(display.usageStatusText, /plan line/)
+  assert.match(display.authHelpText, /signed-in CLI/)
+  // Local stats still make the provider worth showing.
+  assert.ok(Aggregate.providerHasData(display))
+})
+
+test("mergeProviderDisplay: a Codex endpoint-down record surfaces its own help text", () => {
+  const record = readFixture("codex-endpoint-down.json")
+  const display = Aggregate.mergeProviderDisplay(record, null, null)
+  assert.equal(display.ready, false)
+  assert.match(display.authHelpText, /app-server RPC/)
+})
+
+// ----------------------------------------------------------- sync snapshots
+
+function loadTwoDeviceSnapshot() {
+  const dates = Aggregate.recentDateStrings()
+  const today = dates[dates.length - 1]
+  const yesterday = dates[dates.length - 2]
+  const twoDaysAgo = dates[dates.length - 3]
+  const text = readFixtureText("sync-snapshot-two-devices.json")
+    .split("{{TODAY}}").join(today)
+    .split("{{YESTERDAY}}").join(yesterday)
+    .split("{{TWODAYSAGO}}").join(twoDaysAgo)
+  return { snapshots: JSON.parse(text), today, yesterday, twoDaysAgo }
+}
+
+test("aggregateSnapshots: two devices reporting the same provider don't duplicate a day", () => {
+  const { snapshots, today } = loadTwoDeviceSnapshot()
+  const result = Aggregate.aggregateSnapshots(snapshots)
+  const claude = result.providers.claude
+
+  // Exactly one recentDays entry for today, not one per device, with the
+  // per-device message counts summed (device-scoped stats are additive).
+  const todaysEntries = claude.recentDays.filter((d) => d.date === today)
+  assert.equal(todaysEntries.length, 1)
+  assert.equal(todaysEntries[0].messageCount, 65) // 40 (laptop) + 25 (desktop)
+
+  assert.equal(claude.deviceCount, 2)
+  assert.deepEqual(claude.devices, ["desktop", "laptop"])
+})
+
+test("aggregateSnapshots: activeDates union across devices, not summed", () => {
+  const { snapshots } = loadTwoDeviceSnapshot()
+  const result = Aggregate.aggregateSnapshots(snapshots)
+  const claude = result.providers.claude
+
+  // laptop: {today, yesterday} (activeDays 1), desktop: {today, twoDaysAgo}
+  // (activeDays 1) -> union has 3 distinct dates, which must win over the
+  // per-device activeDays counters (max(1, 1) = 1).
+  assert.equal(claude.activeDays, 3)
+})
+
+test("aggregateSnapshots: device-scoped totals sum, not double-count", () => {
+  const { snapshots } = loadTwoDeviceSnapshot()
+  const result = Aggregate.aggregateSnapshots(snapshots)
+  const claude = result.providers.claude
+  assert.equal(claude.totalPrompts, 250) // 100 + 150
+  assert.equal(claude.totalSessions, 50) // 20 + 30
+})
+
+test("aggregateSnapshots: account-scoped stats take the widest value instead of summing", () => {
+  const snapshots = [
+    { deviceId: "a", providers: { fireworks: { scope: "account", totalPrompts: 40, recentDays: [], activeDates: [] } } },
+    { deviceId: "b", providers: { fireworks: { scope: "account", totalPrompts: 55, recentDays: [], activeDates: [] } } }
+  ]
+  const result = Aggregate.aggregateSnapshots(snapshots)
+  assert.equal(result.providers.fireworks.totalPrompts, 55)
+})
+
+test("aggregateSnapshots: an empty snapshot list produces an empty provider map", () => {
+  const result = Aggregate.aggregateSnapshots([])
+  assert.deepEqual(result.providers, {})
+  assert.equal(result.deviceCount, 0)
+})
+
+// --------------------------------------------------- enabled/disabled providers
+
+test("buildLocalSnapshot: a provider disabled in settings is excluded from the built snapshot", () => {
+  const claude = readFixture("claude-ok.json")
+  const codex = readFixture("codex-ok.json")
+  const isProviderEnabled = (id) => id !== "codex" // codex disabled
+  const snapshot = Aggregate.buildLocalSnapshot([claude, codex], "my-device", isProviderEnabled)
+
+  assert.ok(snapshot.providers.claude)
+  assert.equal(snapshot.providers.codex, undefined)
+})
+
+test("buildLocalSnapshot: with no isProviderEnabled callback, every record is included", () => {
+  const claude = readFixture("claude-ok.json")
+  const codex = readFixture("codex-ok.json")
+  const snapshot = Aggregate.buildLocalSnapshot([claude, codex], "my-device")
+  assert.ok(snapshot.providers.claude)
+  assert.ok(snapshot.providers.codex)
+})
+
+test("buildLocalSnapshot: null records in the list are skipped without throwing", () => {
+  const claude = readFixture("claude-ok.json")
+  assert.doesNotThrow(() => Aggregate.buildLocalSnapshot([null, claude, undefined], "dev", () => true))
+  const snapshot = Aggregate.buildLocalSnapshot([null, claude, undefined], "dev", () => true)
+  assert.deepEqual(Object.keys(snapshot.providers), ["claude"])
+})
+
+// --------------------------------------------------------------- malformed
+
+// logic/aggregate.js never parses JSON text itself (that happens in
+// Main.qml, wrapped in try/catch — see parseSyncScanOutput); what it must
+// survive is already-parsed-but-garbage *objects*. malformed.json is
+// deliberately invalid JSON syntax, so the contract under test here mirrors
+// what Main.qml actually does with it: parsing throws and is caught, and
+// the logic layer is then handed a safe fallback instead of the raw text —
+// which every merge/build function must accept without throwing.
+
+test("malformed.json: JSON.parse throws, exactly as Main.qml's try/catch expects", () => {
+  assert.throws(() => JSON.parse(readFixtureText("malformed.json")))
+})
+
+test("mergeProviderDisplay: an empty fallback record (post-parse-failure) resolves to a handled not-ready state", () => {
+  assert.doesNotThrow(() => Aggregate.mergeProviderDisplay({}, null, null))
+  const display = Aggregate.mergeProviderDisplay({}, null, null)
+  assert.equal(display.ready, false)
+  assert.equal(display.limits.length, 0)
+  assert.equal(display.balance, null)
+  assert.equal(Aggregate.providerHasData(display), false)
+})
+
+test("aggregateSnapshots: garbage snapshot shapes (missing providers, non-object stats) don't throw", () => {
+  const garbage = [
+    null,
+    {},
+    { deviceId: 123, providers: null },
+    { deviceId: "x", providers: { claude: null } },
+    { deviceId: "y", providers: { claude: "not-an-object" } },
+    "not-even-an-object"
+  ]
+  assert.doesNotThrow(() => Aggregate.aggregateSnapshots(garbage.filter((s) => s && typeof s === "object")))
+})
+
+// --------------------------------------------------------------- oversized
+
+test("oversized.json: sanitizeProviderId strips traversal characters and caps length", () => {
+  const record = readFixture("oversized.json")
+  const id = Aggregate.sanitizeProviderId(record.id)
+  assert.ok(id.length <= 64)
+  assert.ok(!id.includes("/"))
+  assert.ok(!id.includes(".."))
+})
+
+test("oversized.json: mergeProviderDisplay caps limits, recentDays, and modelUsage", () => {
+  const record = readFixture("oversized.json")
+  const display = Aggregate.mergeProviderDisplay(record, null, null)
+
+  assert.ok(record.limits.length > 20, "fixture must actually exceed the cap to test it")
+  assert.equal(display.limits.length, 20)
+
+  assert.ok(record.recentDays.length > 31, "fixture must actually exceed the cap to test it")
+  assert.equal(display.recentDays.length, 31)
+
+  assert.ok(Object.keys(record.modelUsage).length > 100, "fixture must actually exceed the cap to test it")
+  assert.equal(Object.keys(display.modelUsage).length <= 100, true)
+})
+
+test("oversized.json: display text fields are capped to their field-specific length", () => {
+  const record = readFixture("oversized.json")
+  const display = Aggregate.mergeProviderDisplay(record, null, null)
+  assert.ok(record.name.length > 80, "fixture must actually exceed the cap to test it")
+  assert.ok(display.providerName.length <= 80)
+  assert.ok(record.usageStatusText.length > 200)
+  assert.ok(display.usageStatusText.length <= 200)
+  assert.ok(record.authHelpText.length > 300)
+  assert.ok(display.authHelpText.length <= 300)
+})
+
+test("oversized.json: sanitizeLimits caps each limit's free-text fields", () => {
+  const record = readFixture("oversized.json")
+  const limits = Aggregate.sanitizeLimits(record.limits)
+  for (const limit of limits) {
+    assert.ok(limit.label.length <= 80)
+    assert.ok(limit.title.length <= 80)
+    assert.ok(limit.resetsAt.length <= 40)
+  }
+})
+
+test("oversized.json: capModelUsage and capRecentDays enforce their caps directly", () => {
+  const record = readFixture("oversized.json")
+  assert.equal(Object.keys(Aggregate.capModelUsage(record.modelUsage)).length, 100)
+  assert.equal(Aggregate.capRecentDays(record.recentDays).length, 31)
+})
+
+test("providerSnapshot: caps and sanitizes an oversized local record before it enters the sync payload", () => {
+  const record = readFixture("oversized.json")
+  const snapshot = Aggregate.providerSnapshot(record)
+  assert.ok(snapshot.providerId.length <= 64)
+  assert.equal(snapshot.recentDays.length, 31)
+  assert.ok(Object.keys(snapshot.modelUsage).length <= 100)
+  assert.ok(snapshot.activeDates.length <= 400)
+})

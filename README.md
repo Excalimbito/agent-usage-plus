@@ -30,6 +30,21 @@ To pull in upstream fixes later, diff this against
 port over anything relevant by hand — Omarchy ships that plugin inside its
 own monorepo, so there's no upstream repo to `git pull` from directly.
 
+## Development
+
+The pure logic (record aggregation, alarm thresholds, formatting) lives
+under `logic/` as plain `.js` files, testable outside of QML with Node's
+built-in test runner:
+
+```bash
+npm test          # or: node --test test/
+```
+
+This has no dependencies beyond Node itself — the plugin stays Node-free at
+runtime. Fixtures for the tests (valid records per provider, documented
+error states, a multi-device sync snapshot, and hostile/oversized input)
+live under `test/fixtures/`.
+
 ## Credit
 
 Forked from the `omarchy.agents` plugin bundled with

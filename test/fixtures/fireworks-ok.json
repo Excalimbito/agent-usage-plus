@@ -1,0 +1,39 @@
+{
+  "id": "fireworks",
+  "name": "Fireworks",
+  "ready": true,
+  "hasLocalStats": true,
+  "hasPromptStats": false,
+  "usageStatusText": "",
+  "authHelpText": "",
+  "tierLabel": "",
+  "limits": [],
+  "balance": {
+    "remaining": 12.34,
+    "funded": 20,
+    "spent": 7.66,
+    "currency": "USD",
+    "estimated": true
+  },
+  "todayPrompts": 0,
+  "todaySessions": 0,
+  "todayTotalTokens": 15000,
+  "todayTokensByModel": {
+    "deepseek-v3": { "inputTokens": 9000, "outputTokens": 6000, "cacheReadInputTokens": 0, "cacheCreationInputTokens": 0 }
+  },
+  "recentDays": [
+    { "date": "2026-08-17", "messageCount": 0 },
+    { "date": "2026-08-18", "messageCount": 0 },
+    { "date": "2026-08-19", "messageCount": 0 },
+    { "date": "2026-08-20", "messageCount": 0 },
+    { "date": "2026-08-21", "messageCount": 0 },
+    { "date": "2026-08-22", "messageCount": 0 },
+    { "date": "2026-08-23", "messageCount": 0 }
+  ],
+  "totalPrompts": 0,
+  "totalSessions": 0,
+  "activeDays": 12,
+  "modelUsage": {
+    "deepseek-v3": { "inputTokens": 210000, "outputTokens": 130000, "cacheReadInputTokens": 0, "cacheCreationInputTokens": 0 }
+  }
+}
