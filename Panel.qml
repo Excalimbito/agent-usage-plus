@@ -495,9 +495,7 @@ Panel {
       return "Excludes " + (names.length === 1 ? "unpriced model: " : "unpriced models: ")
         + names.join(", ") + "."
     }
-    var period = String(cost.period || "")
-    return (period !== "" ? period : "Transcript usage")
-      + " priced at published API rates. Not a bill."
+    return "Transcript usage priced at published API rates. Not a bill."
   }
 
   function dayTooltip(day, today) {
@@ -1579,8 +1577,8 @@ Panel {
             Text {
               visible: usageSection.availableDayCount > usageSection.days.length
               width: parent.width
-              text: "Showing the latest " + usageSection.days.length + " of "
-                + usageSection.availableDayCount + " days · use the details button above for the full history"
+              text: usageSection.days.length + " of " + usageSection.availableDayCount
+                + " days shown · Details has the full history"
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
