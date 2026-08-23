@@ -14,8 +14,15 @@ sys.path.insert(0, str(ROOT))
 
 from agent_usage_collectors.deepseek import collect as collect_deepseek  # noqa: E402
 from agent_usage_collectors.openrouter import collect as collect_openrouter  # noqa: E402
+from agent_usage_collectors.xai import collect as collect_xai  # noqa: E402
+from agent_usage_collectors.zai import collect as collect_zai  # noqa: E402
 
-COLLECTORS = {"openrouter": collect_openrouter, "deepseek": collect_deepseek}
+COLLECTORS = {
+    "openrouter": collect_openrouter,
+    "deepseek": collect_deepseek,
+    "xai": collect_xai,
+    "zai": collect_zai,
+}
 
 
 def usage_dir() -> Path:

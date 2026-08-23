@@ -18,7 +18,7 @@ usage() {
 Usage: ./collectors/install.sh [--omarchy-bin DIR] [--enable-timer] [--with-transcript-cost]
 
 Installs collectors into $XDG_DATA_HOME/agent-usage-plus-collectors.
---omarchy-bin DIR additionally links the two omarchy-agent-usage-* commands
+--omarchy-bin DIR additionally links the four omarchy-agent-usage-* commands
 into a writable Omarchy bin directory so Omarchy's usage updater invokes them.
 --enable-timer installs a 10-minute user-level systemd timer for the standalone
 runner. It is useful when the Omarchy bin directory is not user-writable.
@@ -52,12 +52,14 @@ cp -a "$source_root/bin/." "$data_root/bin/"
 mkdir -p "$data_root/scripts" "$data_root/logic"
 cp -a "$(dirname "$source_root")/scripts/calculate-api-cost" "$data_root/scripts/"
 cp -a "$(dirname "$source_root")/logic/cost.js" "$(dirname "$source_root")/logic/api-price-catalogue.js" "$data_root/logic/"
-chmod 0755 "$data_root/bin/agent-usage-plus-collectors" "$data_root/bin/omarchy-agent-usage-openrouter" "$data_root/bin/omarchy-agent-usage-deepseek" "$data_root/bin/omarchy-agent-usage-claude-cost" "$data_root/bin/omarchy-agent-usage-codex-cost" "$data_root/scripts/calculate-api-cost"
+chmod 0755 "$data_root/bin/agent-usage-plus-collectors" "$data_root/bin/omarchy-agent-usage-openrouter" "$data_root/bin/omarchy-agent-usage-deepseek" "$data_root/bin/omarchy-agent-usage-xai" "$data_root/bin/omarchy-agent-usage-zai" "$data_root/bin/omarchy-agent-usage-claude-cost" "$data_root/bin/omarchy-agent-usage-codex-cost" "$data_root/scripts/calculate-api-cost"
 
 if [[ -n $omarchy_bin ]]; then
   [[ -d $omarchy_bin && -w $omarchy_bin ]] || { echo "Not a writable Omarchy bin directory: $omarchy_bin" >&2; exit 1; }
   ln -sfn "$data_root/bin/omarchy-agent-usage-openrouter" "$omarchy_bin/omarchy-agent-usage-openrouter"
   ln -sfn "$data_root/bin/omarchy-agent-usage-deepseek" "$omarchy_bin/omarchy-agent-usage-deepseek"
+  ln -sfn "$data_root/bin/omarchy-agent-usage-xai" "$omarchy_bin/omarchy-agent-usage-xai"
+  ln -sfn "$data_root/bin/omarchy-agent-usage-zai" "$omarchy_bin/omarchy-agent-usage-zai"
   if $with_transcript_cost; then
     for provider in claude codex; do
       target="$omarchy_bin/omarchy-agent-usage-$provider"
