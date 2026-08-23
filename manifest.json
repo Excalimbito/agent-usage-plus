@@ -42,7 +42,9 @@
       "syncMode": "Off",
       "syncDir": "",
       "syncFileName": "",
-      "syncDeviceId": ""
+      "syncDeviceId": "",
+      "warnThresholdPct": 75,
+      "criticalThresholdPct": 90
     },
     "schema": [
       {
@@ -85,6 +87,26 @@
         "label": "Device id",
         "defaultValue": "",
         "description": "Optional stable device name used inside synced aggregate snapshots."
+      },
+      {
+        "key": "warnThresholdPct",
+        "type": "integer",
+        "label": "Warn threshold (%)",
+        "min": 1,
+        "max": 99,
+        "step": 1,
+        "defaultValue": 75,
+        "description": "Usage percentage at which meters switch to the warn color."
+      },
+      {
+        "key": "criticalThresholdPct",
+        "type": "integer",
+        "label": "Critical threshold (%)",
+        "min": 1,
+        "max": 100,
+        "step": 1,
+        "defaultValue": 90,
+        "description": "Usage percentage at which meters switch to the critical (urgent) color."
       }
     ]
   },

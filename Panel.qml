@@ -15,6 +15,11 @@ Panel {
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
+  // "Warn" sits between foreground and urgent — derived from the two
+  // theme-aware colors above (via Qt.tint) rather than a new hardcoded hex,
+  // so it keeps adapting to whatever the active Omarchy theme's foreground
+  // and urgent colors are.
+  readonly property color warn: Qt.tint(foreground, alpha(urgent, 0.55))
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property color surface: Color.popups.background
   readonly property color track: Style.selectedFillFor(foreground, Color.accent)
@@ -47,11 +52,39 @@ Panel {
   readonly property var models: modelRows(provider)
   readonly property var headline: bindingWindow(provider)
   readonly property var balance: provider ? (provider.balance || null) : null
+
+  // User-configurable warn/critical cutoffs (percentage points, 0-100),
+  // read straight from the manifest schema's defaults when unset.
+  readonly property int warnThresholdPct: Number(usage.setting("warnThresholdPct", Thresholds.DEFAULT_WARN_PCT))
+  readonly property int criticalThresholdPct: Number(usage.setting("criticalThresholdPct", Thresholds.DEFAULT_CRITICAL_PCT))
+  readonly property var severityThresholds: ({ warn: warnThresholdPct, critical: criticalThresholdPct })
+
+  // `percent` here is the 0-1 fraction used throughout the panel's data
+  // model; severityFor works in percentage points, so it's scaled up here.
+  function severityForPercent(percent) {
+    if (typeof percent !== "number" || !isFinite(percent) || percent < 0) return "ok"
+    return Thresholds.severityFor(percent * 100, root.severityThresholds)
+  }
+  function colorForSeverity(severity) {
+    if (severity === "critical") return root.urgent
+    if (severity === "warn") return root.warn
+    return root.foreground
+  }
+
   // A prepaid account runs low the way a subscription window fills up: the
-  // last 10% of the funded credits lights the same alarm.
-  readonly property bool balanceAlarming: !!balance
-    && Thresholds.isBalanceAlarming(balance.remaining, balance.funded)
-  readonly property bool alarming: (!!headline && Thresholds.isPercentAlarming(headline.percent)) || balanceAlarming
+  // last stretch of the funded credits lights the same alarm as a
+  // rate-limit window nearing its cap.
+  readonly property real balanceUsedRatio: (!!balance && balance.funded > 0)
+    ? (1 - Number(balance.remaining) / Number(balance.funded)) : -1
+  readonly property string balanceSeverity: severityForPercent(balanceUsedRatio)
+  readonly property string headlineSeverity: headline ? severityForPercent(headline.percent) : "ok"
+  // The bar icon and its badge reflect the worse of the headline window and
+  // the balance — either one crossing into "critical" should read as
+  // critical even if the other is still "ok".
+  readonly property string severity: (headlineSeverity === "critical" || balanceSeverity === "critical")
+    ? "critical" : ((headlineSeverity === "warn" || balanceSeverity === "warn") ? "warn" : "ok")
+  readonly property bool alarming: severity === "critical"
+  readonly property bool balanceAlarming: balanceSeverity === "critical"
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
   function alpha(c, a) { return Qt.rgba(c.r, c.g, c.b, a) }
@@ -370,7 +403,7 @@ Panel {
     if (p && p.balance && p.balance.funded > 0) return 1 - p.balance.remaining / p.balance.funded
     return -1
   }
-  function providerAlarming(p) { return Thresholds.isPercentAlarming(providerPercent(p)) }
+  function providerSeverity(p) { return root.severityForPercent(providerPercent(p)) }
   function providerPercentText(p) {
     var pct = providerPercent(p)
     return pct >= 0 ? Format.formatPercent(pct) : "…"
@@ -393,7 +426,7 @@ Panel {
   component CheckpointMeter: Item {
     id: checkpointMeter
     property real value: -1
-    property bool alarming: false
+    property string severity: "ok"
     // A second percent, drawn as a small marker sticking past the track
     // rather than a whole extra bar — e.g. the weekly percent riding on
     // the session meter, so both numbers show without doubling the width.
@@ -415,7 +448,7 @@ Panel {
       height: checkpointTrack.height
       radius: checkpointTrack.radius
       width: checkpointTrack.width * root.clamp(checkpointMeter.value, 0, 1)
-      color: checkpointMeter.alarming ? root.urgent : root.foreground
+      color: root.colorForSeverity(checkpointMeter.severity)
 
       Behavior on width {
         NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
@@ -540,14 +573,14 @@ Panel {
             width: Style.space(48)
             value: root.providerPercent(providerGroup.modelData)
             secondaryValue: root.providerSecondaryPercent(providerGroup.modelData)
-            alarming: root.providerAlarming(providerGroup.modelData)
+            severity: root.providerSeverity(providerGroup.modelData)
             visible: root.providerPercent(providerGroup.modelData) >= 0
           }
 
           Text {
             anchors.verticalCenter: parent.verticalCenter
             text: root.providerPercentText(providerGroup.modelData)
-            color: root.providerAlarming(providerGroup.modelData) ? root.urgent : root.foreground
+            color: root.colorForSeverity(root.providerSeverity(providerGroup.modelData))
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
@@ -788,7 +821,7 @@ Panel {
                 id: balanceValue
                 text: root.balance ? root.formatMoney(root.balance.remaining, root.balance.currency) : ""
                 textFormat: Text.PlainText
-                color: root.balanceAlarming ? root.urgent : root.foreground
+                color: root.colorForSeverity(root.balanceSeverity)
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
                 anchors.right: parent.right
@@ -800,7 +833,7 @@ Panel {
               visible: balanceSection.ratio >= 0
               width: parent.width
               value: balanceSection.ratio
-              alarming: root.balanceAlarming
+              severity: root.balanceSeverity
             }
 
             Text {
@@ -930,7 +963,7 @@ Panel {
     id: limitRow
     property var window: null
 
-    readonly property bool alarming: window && Thresholds.isPercentAlarming(window.percent)
+    readonly property string severity: window ? root.severityForPercent(window.percent) : "ok"
 
     spacing: Style.space(6)
 
@@ -959,7 +992,7 @@ Panel {
         text: limitRow.window && limitRow.window.percent >= 0
           ? Format.formatPercent(limitRow.window.percent)
           : "—"
-        color: limitRow.alarming ? root.urgent : root.foreground
+        color: root.colorForSeverity(limitRow.severity)
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         anchors.right: parent.right
@@ -970,7 +1003,7 @@ Panel {
     Meter {
       width: parent.width
       value: limitRow.window ? limitRow.window.percent : -1
-      alarming: limitRow.alarming
+      severity: limitRow.severity
     }
 
     Text {
@@ -990,7 +1023,7 @@ Panel {
   component Meter: Item {
     id: meter
     property real value: -1
-    property bool alarming: false
+    property string severity: "ok"
     property real thickness: Math.max(Style.space(4), Math.round(Style.spacing.controlHeight * 0.14))
 
     implicitHeight: thickness
@@ -1008,7 +1041,7 @@ Panel {
       height: meterTrack.height
       radius: meterTrack.radius
       width: meterTrack.width * root.clamp(meter.value, 0, 1)
-      color: meter.alarming ? root.urgent : root.foreground
+      color: root.colorForSeverity(meter.severity)
 
       Behavior on width {
         NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
