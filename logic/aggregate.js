@@ -120,6 +120,47 @@ function balanceValue(raw) {
   }
 }
 
+// An optional, collector-reported *derived estimate* of what usage would
+// cost at published API rates (issue #12) — never a real ledger figure the
+// way `balance` is, which is why the panel always labels it as an estimate
+// rather than treating it like billing. Like `limits`/`balance`, this is
+// per-account and never merged across synced devices.
+function costValue(raw) {
+  if (!raw || typeof raw !== "object") return null
+  var estimateUsd = Number(raw.estimateUsd)
+  if (!isFinite(estimateUsd) || estimateUsd < 0) return null
+
+  var byModelIn = Array.isArray(raw.byModel) ? raw.byModel : []
+  var byModel = []
+  for (var i = 0; i < byModelIn.length && byModel.length < 100; i++) {
+    var entry = byModelIn[i] || {}
+    var usd = Number(entry.usd)
+    byModel.push({
+      model: sanitizeDisplayText(entry.model, 80),
+      usd: isFinite(usd) && usd >= 0 ? usd : 0,
+      tokens: numberValue(entry.tokens)
+    })
+  }
+
+  var byDayIn = Array.isArray(raw.byDay) ? raw.byDay : []
+  var byDay = []
+  for (var d = 0; d < byDayIn.length && byDay.length < 31; d++) {
+    var day = byDayIn[d] || {}
+    var dayUsd = Number(day.usd)
+    byDay.push({
+      date: sanitizeDisplayText(day.date, 20),
+      usd: isFinite(dayUsd) && dayUsd >= 0 ? dayUsd : 0
+    })
+  }
+
+  return {
+    estimateUsd: estimateUsd,
+    period: sanitizeDisplayText(raw.period, 20),
+    byModel: byModel,
+    byDay: byDay
+  }
+}
+
 // ------------------------------------------------------------ day buckets
 
 function dateString(date) {
@@ -394,6 +435,7 @@ function mergeProviderDisplay(record, stats, aggregateMeta) {
     limits: sanitizeLimits(record.limits),
     tierLabel: sanitizeDisplayText(record.tierLabel, 60),
     balance: balanceValue(record.balance),
+    cost: costValue(record.cost),
 
     todayPrompts: synced ? numberValue(stats.todayPrompts) : numberValue(record.todayPrompts),
     todaySessions: synced ? numberValue(stats.todaySessions) : numberValue(record.todaySessions),
@@ -454,6 +496,7 @@ if (typeof module !== "undefined" && module.exports) {
     cloneValue: cloneValue,
     sanitizeDeviceId: sanitizeDeviceId,
     balanceValue: balanceValue,
+    costValue: costValue,
     dateString: dateString,
     recentDateStrings: recentDateStrings,
     emptyTokenBucket: emptyTokenBucket,

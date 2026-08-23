@@ -49,6 +49,28 @@ test("formatMoney: defaults currency to USD and non-finite amounts to zero", () 
   assert.equal(Format.formatMoney(undefined, "USD"), "$0.00")
 })
 
+test("formatUsd: zero and sub-cent values", () => {
+  assert.equal(Format.formatUsd(0), "$0.00")
+  assert.equal(Format.formatUsd(0.001), "<$0.01")
+  assert.equal(Format.formatUsd(0.0099), "<$0.01")
+})
+
+test("formatUsd: values over 1000 get a thousands separator", () => {
+  assert.equal(Format.formatUsd(1234.5), "$1,234.50")
+  assert.equal(Format.formatUsd(1000), "$1,000.00")
+})
+
+test("formatUsd: rounds to the nearest cent", () => {
+  assert.equal(Format.formatUsd(8.005), "$8.01")
+  assert.equal(Format.formatUsd(12.3), "$12.30")
+})
+
+test("formatUsd: non-finite or negative input reads as zero", () => {
+  assert.equal(Format.formatUsd(NaN), "$0.00")
+  assert.equal(Format.formatUsd(undefined), "$0.00")
+  assert.equal(Format.formatUsd(-5), "$0.00")
+})
+
 test("friendlyModelName: rejoins a split version and title-cases words", () => {
   assert.equal(Format.friendlyModelName("claude-opus-4-8"), "Opus 4.8")
   assert.equal(Format.friendlyModelName("gpt-5.6-sol"), "GPT 5.6 Sol")

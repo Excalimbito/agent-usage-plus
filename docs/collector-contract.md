@@ -69,6 +69,7 @@ report for it right now" — not "no one should bother."
 | `retryAdvised` | boolean | no | Set this to `true` when your collector failed to reach its remote endpoint for transport reasons (DNS/network down, not a real HTTP error) rather than an auth problem. The panel schedules one retry ~30s later instead of waiting out the full refresh interval, and only for agents that set this flag — one provider's outage doesn't put every other collector on a fast retry loop. |
 | `limits` | array of limit windows | no | Rate-limit allowances (session/weekly/model-scoped/etc). See "Limits" below. Mutually meaningful alongside or instead of `balance` — an agent can report neither, either, or (unusually) both. |
 | `balance` | object | no | A prepaid credit ledger, for agents billed by consumption rather than a rate-limit window. See "Balance" below. |
+| `cost` | object | no | An optional, derived estimate of what usage would cost at published API rates — not a real bill. See "Cost" below. |
 | `todayPrompts` | integer | no | Number of prompts sent today (local time). Leave at `0`/omit when `hasPromptStats` is `false`. |
 | `todaySessions` | integer | no | Number of distinct sessions today. |
 | `todayTotalTokens` | integer | no | Total tokens (input + output + cache, however your provider buckets them) consumed today. |
@@ -148,6 +149,55 @@ A prepaid/credit-based agent (no rate-limit windows at all) reports
 `balance` and omits `limits`. Reporting both is unusual but not forbidden —
 nothing stops an agent from having both a rate limit and a running credit
 balance.
+
+### Cost shape (used by `cost`)
+
+```json
+{
+  "estimateUsd": 12.43,
+  "period": "30d",
+  "byModel": [
+    { "model": "claude-sonnet-5", "usd": 8.10, "tokens": 540000000 }
+  ],
+  "byDay": [
+    { "date": "2026-08-22", "usd": 1.02 }
+  ]
+}
+```
+
+An optional block for an agent whose plan doesn't carry a real dollar
+figure at all (a subscription rate-limit window, unlike Fireworks'
+prepaid `balance`) but whose collector can still work out **what the
+underlying usage would have cost at published per-token API rates** — the
+same idea as T3 Chat's usage page, which shows what a subscription's usage
+would have cost billed à la carte.
+
+**`estimateUsd` is a derived estimate, not a real bill.** It is a number
+your collector computes by multiplying token counts by a price list you
+maintain yourself; it is never read from an actual invoice or billing
+API for a rate-limited plan (if it were, you'd be reporting `balance`
+instead). The panel labels this figure as an estimate wherever it's shown,
+and your collector should do the same anywhere else it surfaces the
+number — never present it as "this is what you were charged."
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `estimateUsd` | number, ≥ 0 | **yes** (to make the object count at all) | The headline derived estimate for `period`, in US dollars. A missing or negative value makes the panel treat the whole `cost` object as absent, the same convention `balance.remaining` uses. |
+| `period` | string | no | Free-text label for the window `estimateUsd` covers, e.g. `"30d"`, `"This month"`, `"All time"`. Shown next to the estimate; omit it if your estimate doesn't have a clean window. Max 20 chars. |
+| `byModel` | array of `{ "model": string, "usd": number, "tokens": integer }` | no | Per-model breakdown of the same estimate. Capped at 100 entries; a negative `usd` reads as `0`. |
+| `byDay` | array of `{ "date": "YYYY-MM-DD", "usd": number }` | no | Per-day breakdown of the same estimate, meant to line up with `recentDays`. Capped at 31 entries; a negative `usd` reads as `0`. |
+
+Like `limits` and `balance`, `cost` is per-account and is never merged or
+summed across synced devices — the panel always reads it straight off the
+selected device's own record.
+
+No shipped collector reports `cost` today: writing a cost-estimating
+collector (reading transcripts/API history and applying a price list) is
+out of scope for this repo — see `CONTRIBUTING.md`'s repo-boundary note.
+This section documents the shape so a third-party collector can add it
+without any change to this repo; the panel already renders an "Est. API
+cost" row whenever a record includes a valid `cost` block, and renders
+nothing extra when it's absent.
 
 ## Error states
 
@@ -299,6 +349,18 @@ full week of token history, and a synced-friendly `activeDates` list:
     "spent": 5.68,
     "currency": "USD",
     "estimated": false
+  },
+  "cost": {
+    "estimateUsd": 12.43,
+    "period": "30d",
+    "byModel": [
+      { "model": "example-model-v1", "usd": 8.10, "tokens": 96000000 },
+      { "model": "example-model-v1-mini", "usd": 4.33, "tokens": 32000000 }
+    ],
+    "byDay": [
+      { "date": "2026-08-22", "usd": 1.02 },
+      { "date": "2026-08-23", "usd": 0.87 }
+    ]
   },
   "todayPrompts": 37,
   "todaySessions": 4,

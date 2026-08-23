@@ -1,0 +1,108 @@
+{
+  "id": "claude",
+  "name": "Claude",
+  "ready": true,
+  "hasLocalStats": true,
+  "hasPromptStats": true,
+  "usageStatusText": "",
+  "authHelpText": "",
+  "tierLabel": "Max 20x",
+  "limits": [
+    {
+      "label": "Session",
+      "title": "5-hour session",
+      "percent": 0.42,
+      "resetsAt": "2026-08-23T18:00:00Z"
+    },
+    {
+      "label": "Weekly",
+      "title": "7-day weekly",
+      "percent": 0.61,
+      "resetsAt": "2026-08-27T00:00:00Z"
+    }
+  ],
+  "todayPrompts": 34,
+  "todaySessions": 3,
+  "todayTotalTokens": 128000,
+  "todayTokensByModel": {
+    "claude-opus-4-20250514": {
+      "inputTokens": 50000,
+      "outputTokens": 12000,
+      "cacheReadInputTokens": 60000,
+      "cacheCreationInputTokens": 6000
+    }
+  },
+  "recentDays": [
+    {
+      "date": "2026-08-17",
+      "messageCount": 20
+    },
+    {
+      "date": "2026-08-18",
+      "messageCount": 15
+    },
+    {
+      "date": "2026-08-19",
+      "messageCount": 0
+    },
+    {
+      "date": "2026-08-20",
+      "messageCount": 42
+    },
+    {
+      "date": "2026-08-21",
+      "messageCount": 30
+    },
+    {
+      "date": "2026-08-22",
+      "messageCount": 18
+    },
+    {
+      "date": "2026-08-23",
+      "messageCount": 34
+    }
+  ],
+  "totalPrompts": 4210,
+  "totalSessions": 380,
+  "activeDays": 96,
+  "modelUsage": {
+    "claude-opus-4-20250514": {
+      "inputTokens": 900000,
+      "outputTokens": 210000,
+      "cacheReadInputTokens": 1200000,
+      "cacheCreationInputTokens": 80000
+    },
+    "claude-sonnet-4-20250514": {
+      "inputTokens": 400000,
+      "outputTokens": 95000,
+      "cacheReadInputTokens": 300000,
+      "cacheCreationInputTokens": 20000
+    }
+  },
+  "cost": {
+    "estimateUsd": 12.43,
+    "period": "30d",
+    "byModel": [
+      {
+        "model": "claude-sonnet-5",
+        "usd": 8.1,
+        "tokens": 540000000
+      },
+      {
+        "model": "claude-opus-5",
+        "usd": 4.33,
+        "tokens": 120000000
+      }
+    ],
+    "byDay": [
+      {
+        "date": "2026-08-22",
+        "usd": 1.02
+      },
+      {
+        "date": "2026-08-23",
+        "usd": 0.87
+      }
+    ]
+  }
+}

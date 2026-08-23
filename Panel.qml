@@ -74,6 +74,16 @@ Panel {
   readonly property var allModels: expanded ? allModelRows(providers) : []
   readonly property var headline: bindingWindow(provider)
   readonly property var balance: provider ? (provider.balance || null) : null
+  // Optional, collector-reported "what this would cost at published API
+  // rates" estimate (issue #12). Absent for every shipped collector today
+  // (Claude, Codex, Fireworks don't report it), so the section built around
+  // this stays hidden and the panel renders exactly as before this issue.
+  readonly property var cost: provider ? (provider.cost || null) : null
+  // Session-only, like `expanded`/`settingsOpen`: whether the "Est. API
+  // cost" row's per-model breakdown is unfolded. Reset per provider switch
+  // so switching subscriptions doesn't leave a stale breakdown open under
+  // a different provider's number.
+  property bool costOpen: false
 
   // User-configurable warn/critical cutoffs (percentage points, 0-100),
   // read straight from the manifest schema's defaults when unset.
@@ -293,6 +303,19 @@ Panel {
     return Format.formatMoney(value, currency)
   }
 
+  // ------------------------------------------------------------------ cost
+  //
+  // Optional collector-reported "what this would cost at published API
+  // rates" estimate (issue #12) — a derived figure, never a real bill.
+
+  function formatUsd(value) {
+    return Format.formatUsd(value)
+  }
+
+  function toggleCost() {
+    root.costOpen = !root.costOpen
+  }
+
   function balanceDetailText(b) {
     if (!b || !(b.funded > 0)) return ""
     var text = formatMoney(b.spent, b.currency) + " spent of " + formatMoney(b.funded, b.currency) + " funded"
@@ -468,11 +491,15 @@ Panel {
   // the mark runs the whole span, Claude through Codex, not just a sliver.
   readonly property real openPanelIndicatorWidth: implicitWidth
 
-  onProviderIndexChanged: if (panelFlick) panelFlick.contentY = 0
+  onProviderIndexChanged: {
+    if (panelFlick) panelFlick.contentY = 0
+    costOpen = false
+  }
   onOpenedChanged: if (opened) {
     cursorActive = false
     expanded = false
     settingsOpen = false
+    costOpen = false
     nowMs = Date.now()
     if (panelFlick) panelFlick.contentY = 0
     usage.refreshLimits()
@@ -939,9 +966,9 @@ Panel {
             }
           }
 
-          // ---------- Balance / limits ----------
+          // ---------- Balance / limits / cost ----------
           PanelSeparator {
-            visible: balanceSection.visible || limitsSection.visible
+            visible: balanceSection.visible || limitsSection.visible || costSection.visible
             foreground: root.foreground
           }
 
@@ -1027,6 +1054,110 @@ Panel {
                 required property var modelData
                 width: limitsSection.width
                 window: modelData
+              }
+            }
+          }
+
+          // ---------- Cost: an optional, collector-reported *estimate* of
+          // what usage would cost at published API rates (issue #12). No
+          // shipped collector (Claude, Codex, Fireworks) reports `cost`
+          // today, so `costSection.visible` is false for all three real
+          // fixtures and this whole block renders nothing — zero visual
+          // change from before this section existed. Purely additive, same
+          // pattern as `expandedSection` above: gated on a property
+          // (`root.cost`) that stays null/false until a future collector
+          // opts in.
+          Column {
+            id: costSection
+            visible: !!root.cost
+            width: parent.width
+            spacing: Style.space(10)
+
+            PanelSectionHeader {
+              width: parent.width
+              text: "EST. API COST"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
+
+            MouseArea {
+              width: parent.width
+              height: costHeaderRow.implicitHeight
+              cursorShape: Qt.PointingHandCursor
+              enabled: !!root.cost && root.cost.byModel && root.cost.byModel.length > 0
+              onClicked: root.toggleCost()
+
+              Item {
+                id: costHeaderRow
+                width: parent.width
+                implicitHeight: Math.max(costLabel.implicitHeight, costValueText.implicitHeight)
+
+                Text {
+                  id: costLabel
+                  text: "Est. API cost" + (root.cost && root.cost.period ? " (" + root.cost.period + ")" : "")
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Text {
+                  id: costValueText
+                  text: root.cost ? root.formatUsd(root.cost.estimateUsd) : ""
+                  textFormat: Text.PlainText
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+              }
+            }
+
+            Text {
+              width: parent.width
+              text: "Derived estimate at published API rates — not a real bill."
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+              visible: root.costOpen && !!root.cost && root.cost.byModel && root.cost.byModel.length > 0
+
+              Repeater {
+                model: (root.costOpen && root.cost) ? root.cost.byModel : []
+
+                Item {
+                  required property var modelData
+                  width: costSection.width
+                  implicitHeight: costModelName.implicitHeight
+
+                  Text {
+                    id: costModelName
+                    text: usage.friendlyModelName(modelData.model)
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                  }
+
+                  Text {
+                    text: root.formatUsd(modelData.usd)
+                    textFormat: Text.PlainText
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                  }
+                }
               }
             }
           }

@@ -44,6 +44,31 @@ function formatMoney(value, currency) {
   return currencyPrefix(currency) + amount.toFixed(2)
 }
 
+// Formats a USD *estimate* (issue #12's `cost.estimateUsd`), not a real
+// ledger balance. Deliberately not just `formatMoney(amount, "USD")`:
+//
+// - A real API-rate estimate can be a small fraction of a cent per call
+//   (e.g. "$0.0031 today"). `formatMoney`'s two decimal places would round
+//   that all the way down to "$0.00", which reads as free when it isn't —
+//   fine for `balance` (a ledger already rounded to cents by whoever funds
+//   it), wrong for a derived estimate. Anything strictly between $0 and
+//   $0.01 renders as "<$0.01" instead of a misleading "$0.00".
+// - Estimates can also run well past what a prepaid balance ever shows
+//   (a monthly all-model estimate over $1,000), so amounts of $1,000 or
+//   more get thousands separators for readability.
+//
+// Negative and non-finite input reads as $0, same convention as
+// `formatMoney`'s NaN handling.
+function formatUsd(amount) {
+  var value = Number(amount)
+  if (!isFinite(value) || value < 0) value = 0
+  if (value > 0 && value < 0.01) return "<$0.01"
+  var fixed = value.toFixed(2)
+  var parts = fixed.split(".")
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+  return "$" + parts.join(".")
+}
+
 function modelWordCase(word) {
   if (word === "gpt") return "GPT"
   if (word === "deepseek") return "DeepSeek"
@@ -83,6 +108,7 @@ if (typeof module !== "undefined" && module.exports) {
     formatDuration: formatDuration,
     currencyPrefix: currencyPrefix,
     formatMoney: formatMoney,
+    formatUsd: formatUsd,
     modelWordCase: modelWordCase,
     friendlyModelName: friendlyModelName
   }
