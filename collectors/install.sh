@@ -24,7 +24,8 @@ into a writable Omarchy bin directory so Omarchy's usage updater invokes them.
 runner. It is useful when the Omarchy bin directory is not user-writable.
 --with-transcript-cost additionally links cost-decorating Claude/Codex wrappers.
 An existing user collector is moved once to a recoverable
-`.agent-usage-plus-base` sibling which the wrapper runs as its base scanner.
+`agent-usage-plus-base-<provider>` file which the wrapper runs as its base
+scanner; that name deliberately stays outside Omarchy's collector glob.
 EOF
 }
 
@@ -59,7 +60,7 @@ if [[ -n $omarchy_bin ]]; then
   if $with_transcript_cost; then
     for provider in claude codex; do
       target="$omarchy_bin/omarchy-agent-usage-$provider"
-      backup="$target.agent-usage-plus-base"
+      backup="$omarchy_bin/agent-usage-plus-base-$provider"
       if [[ -e $target && ! -L $target ]]; then
         [[ ! -e $backup ]] || { echo "Refusing to replace $target: backup already exists at $backup" >&2; exit 1; }
         mv "$target" "$backup"

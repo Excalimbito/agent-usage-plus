@@ -80,9 +80,11 @@ AGENT_USAGE_PLUS_CODEX_BASE_COLLECTOR="$HOME/.local/bin/omarchy-agent-usage-code
 ```
 
 With `--with-transcript-cost`, an existing regular user collector is moved
-once to a recoverable `.agent-usage-plus-base` sibling; the wrapper invokes
-that preserved scanner and then adds cost. Unknown symlinks and a pre-existing
-backup stop the install rather than being overwritten. See
+once to a recoverable `agent-usage-plus-base-<provider>` file; the wrapper
+invokes that preserved scanner and then adds cost. The backup name is outside
+Omarchy's collector-discovery pattern, so it is never shown as a duplicate
+provider. Unknown symlinks and a pre-existing backup stop the install rather
+than being overwritten. See
 [`../docs/cost-estimation.md`](../docs/cost-estimation.md) for price-list
 version and model-coverage rules.
 
