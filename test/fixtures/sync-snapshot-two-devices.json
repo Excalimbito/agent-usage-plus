@@ -1,0 +1,60 @@
+[
+  {
+    "deviceId": "laptop",
+    "providers": {
+      "claude": {
+        "providerId": "claude",
+        "providerName": "Claude",
+        "ready": true,
+        "hasLocalStats": true,
+        "hasPromptStats": true,
+        "scope": "device",
+        "todayPrompts": 10,
+        "todaySessions": 2,
+        "todayTotalTokens": 5000,
+        "todayTokensByModel": {
+          "claude-opus-4-20250514": { "inputTokens": 3000, "outputTokens": 1000, "cacheReadInputTokens": 900, "cacheCreationInputTokens": 100 }
+        },
+        "recentDays": [
+          { "date": "{{TODAY}}", "messageCount": 40 }
+        ],
+        "totalPrompts": 100,
+        "totalSessions": 20,
+        "activeDays": 1,
+        "activeDates": ["{{TODAY}}", "{{YESTERDAY}}"],
+        "modelUsage": {
+          "claude-opus-4-20250514": { "inputTokens": 500000, "outputTokens": 120000, "cacheReadInputTokens": 300000, "cacheCreationInputTokens": 20000 }
+        }
+      }
+    }
+  },
+  {
+    "deviceId": "desktop",
+    "providers": {
+      "claude": {
+        "providerId": "claude",
+        "providerName": "Claude",
+        "ready": true,
+        "hasLocalStats": true,
+        "hasPromptStats": true,
+        "scope": "device",
+        "todayPrompts": 15,
+        "todaySessions": 3,
+        "todayTotalTokens": 7000,
+        "todayTokensByModel": {
+          "claude-opus-4-20250514": { "inputTokens": 4000, "outputTokens": 1500, "cacheReadInputTokens": 1100, "cacheCreationInputTokens": 200 }
+        },
+        "recentDays": [
+          { "date": "{{TODAY}}", "messageCount": 25 }
+        ],
+        "totalPrompts": 150,
+        "totalSessions": 30,
+        "activeDays": 1,
+        "activeDates": ["{{TODAY}}", "{{TWODAYSAGO}}"],
+        "modelUsage": {
+          "claude-opus-4-20250514": { "inputTokens": 350000, "outputTokens": 80000, "cacheReadInputTokens": 200000, "cacheCreationInputTokens": 10000 }
+        }
+      }
+    }
+  }
+]
