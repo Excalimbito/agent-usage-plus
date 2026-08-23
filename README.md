@@ -37,6 +37,14 @@ Changes from the built-in version:
   Settings and the expanded data view are mutually exclusive — opening one
   closes the other, so the panel never has to grow tall enough to show both
   at once.
+- The expanded view also adds a taller, range-selectable history chart
+  (24h / 7d / 30d / 90d) for the currently selected subscription, drawn as
+  a plain QML `Canvas` bar-per-day chart — the same visual idiom the
+  compact tokens-by-day row already uses, just taller. Switching ranges
+  only re-slices data already held in memory; it never triggers a new
+  collector run. Picking a range with more days than the record actually
+  has shows an explicit "history not available beyond N days" message
+  instead of a misleading chart.
 
 To pull in upstream fixes later, diff this against
 `/usr/share/omarchy/shell/plugins/agents/` after an `omarchy update` and
@@ -108,6 +116,10 @@ cross-device aggregation); `Agent.qml` is the per-record file watcher.
   funded-versus-spent detail.
 - **Tokens by day** — one row per day for the last week: day, bar, tokens, with today
   bolded at the bottom. Hover today for its prompt and session count.
+- **Tokens by day · chart** (expanded view only) — a taller Canvas bar chart
+  of the same per-day data for the current subscription, with a 24h/7d/30d/90d
+  range selector above it. A range beyond what the record actually holds
+  shows a "history not available" message instead of the chart.
 - **Tokens by model** — tokens per model with the bar behind each row scaled
   to the heaviest model,
   the same way the weekly chart scales to its busiest day. Hover for the
@@ -258,6 +270,7 @@ The top-level keys can be set with
 | `criticalThresholdPct` | `90` | Usage % at which meters switch to the critical (urgent) color (1-100) |
 | `barMode` | `"all"` | `"all"`, `"primary"` (one meter), or `"cycle"` (one meter, rotating) |
 | `barCycleIntervalSec` | `8` | Seconds between rotations when `barMode` is `"cycle"` (3-120) |
+| `historyDays` | `30` | Documents how much daily history (7-90) a collector is expected to write into `recentDays`. The panel never fetches more than what's already in a record — this only tells collector authors what window to aim for; see [`docs/collector-contract.md`](docs/collector-contract.md). |
 
 Numbers need `--json`, or they land in `shell.json` as strings:
 

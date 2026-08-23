@@ -7,6 +7,7 @@ import qs.Ui
 import "logic/thresholds.js" as Thresholds
 import "logic/format.js" as Format
 import "logic/aggregate.js" as Aggregate
+import "logic/history.js" as History
 
 Panel {
   id: root
@@ -84,6 +85,43 @@ Panel {
   // so switching subscriptions doesn't leave a stale breakdown open under
   // a different provider's number.
   property bool costOpen: false
+
+  // ---------------------------------------------------------- history chart
+  //
+  // Issue #13. Session-only, like `expanded`/`settingsOpen` above — the
+  // selector re-slices `provider.recentDays`, which is already sitting in
+  // memory from the last refresh, so flipping it never touches
+  // usage.runUpdate()/Main.qml's updateProcess. Defaults to "7d" rather
+  // than the manifest's 30-day `historyDays` default because a real
+  // collector today only ever fills ~7-31 days (see capRecentDays in
+  // logic/aggregate.js): defaulting to a range most collectors can satisfy
+  // means expanding the panel for the first time shows a chart, not an
+  // immediate "not available" message.
+  property string historyRangeId: "7d"
+  // Only computed while expanded, same reasoning as `allModels` above.
+  readonly property var historySeries: (expanded && provider)
+    ? History.buildHistorySeries(provider.recentDays || [], History.rangeDaysFor(historyRangeId))
+    : null
+
+  function historyUnavailableText(series) {
+    if (!series) return ""
+    var n = Number(series.availableDays || 0)
+    return "History not available beyond " + n + " day" + (n === 1 ? "" : "s")
+      + " for this subscription."
+  }
+
+  function historyRangeLabel(rangeId) {
+    for (var i = 0; i < History.RANGE_OPTIONS.length; i++)
+      if (History.RANGE_OPTIONS[i].id === rangeId) return History.RANGE_OPTIONS[i].label
+    return rangeId
+  }
+
+  function historySeriesTotal(series) {
+    if (!series || !series.points) return 0
+    var total = 0
+    for (var i = 0; i < series.points.length; i++) total += Number(series.points[i].value || 0)
+    return total
+  }
 
   // User-configurable warn/critical cutoffs (percentage points, 0-100),
   // read straight from the manifest schema's defaults when unset.
@@ -1292,6 +1330,183 @@ Panel {
               visible: root.allModels.length === 0
               width: parent.width
               text: "No model usage yet across enabled subscriptions."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              horizontalAlignment: Text.AlignHCenter
+              wrapMode: Text.WordWrap
+            }
+          }
+
+          // ---------- History chart (issue 13): a taller, range-selectable
+          // view of the same per-day data as the compact "TOKENS BY DAY"
+          // table above, for the currently selected provider only. Kept
+          // under `expanded` alongside the all-subscriptions model table
+          // above — this is data, like that table, not a setting, so it
+          // does not share `settingsOpen`'s gate.
+          //
+          // There is no existing per-provider color anywhere in this panel
+          // (ProviderMark falls back to the module's shared glyph/initial,
+          // and every meter/bar uses `root.foreground` at varying alpha) so
+          // this chart does the same rather than inventing a color scheme
+          // the rest of the panel doesn't have. A future per-provider
+          // palette, if one is ever added, would apply here too.
+          //
+          // Drawn as bars-per-day rather than a line/area fill: it is the
+          // same visual idiom DayRow above already uses (a bar scaled to
+          // the heaviest day), just taller and Canvas-drawn instead of
+          // stacked Rectangles, so it reads as more of this panel's house
+          // style rather than a new chart type, and it sidesteps needing
+          // any curve/spline math in code that qmllint and the test suite
+          // can't check.
+          PanelSeparator {
+            visible: root.expanded
+            foreground: root.foreground
+          }
+
+          Column {
+            id: historySection
+            visible: root.expanded
+            width: parent.width
+            spacing: Style.spacing.md
+
+            PanelSectionHeader {
+              width: parent.width
+              text: "TOKENS BY DAY · CHART"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
+
+            Text {
+              visible: !root.provider
+              width: parent.width
+              text: "Select a subscription above to see its history."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              horizontalAlignment: Text.AlignHCenter
+              wrapMode: Text.WordWrap
+            }
+
+            // ---------- Range selector: purely a session-only UI-state
+            // change over data already in memory (`root.historySeries`
+            // just re-slices `provider.recentDays`). It never calls
+            // usage.runUpdate() or anything else that reaches Main.qml's
+            // updateProcess, so switching ranges never triggers a new
+            // collector run.
+            Row {
+              id: historyRangeRow
+              visible: !!root.provider
+              width: parent.width
+              spacing: Style.spacing.md
+
+              readonly property real cellWidth: History.RANGE_OPTIONS.length > 0
+                ? (width - spacing * (History.RANGE_OPTIONS.length - 1)) / History.RANGE_OPTIONS.length
+                : 0
+
+              Repeater {
+                model: History.RANGE_OPTIONS
+
+                Button {
+                  required property var modelData
+
+                  width: historyRangeRow.cellWidth
+                  text: modelData.label
+                  selected: modelData.id === root.historyRangeId
+                  hasCursor: root.cursorActive && modelData.id === root.historyRangeId
+                  bordered: true
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.bodySmall
+                  verticalPadding: Style.spacing.controlPaddingY
+                  onClicked: {
+                    root.cursorActive = true
+                    root.historyRangeId = modelData.id
+                  }
+                  onHovered: function(isHovered) { if (isHovered) root.cursorActive = true }
+                }
+              }
+            }
+
+            Text {
+              visible: !!(root.historySeries && root.historySeries.ok)
+              width: parent.width
+              text: root.historySeries
+                ? root.historyRangeLabel(root.historyRangeId) + " · "
+                  + usage.formatTokenCount(root.historySeriesTotal(root.historySeries)) + " tokens total"
+                : ""
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Canvas {
+              id: historyCanvas
+              visible: !!(root.historySeries && root.historySeries.ok && root.historySeries.points.length > 0)
+              width: parent.width
+              height: Style.spacing.controlHeight * 2
+
+              property var series: root.historySeries
+              property color barColor: root.foreground
+
+              onSeriesChanged: requestPaint()
+              onWidthChanged: requestPaint()
+              onHeightChanged: requestPaint()
+              onBarColorChanged: requestPaint()
+              onVisibleChanged: if (visible) requestPaint()
+
+              // Canvas paint code has no lint/type-check coverage the rest
+              // of this file gets and a thrown exception here can silently
+              // blank the whole panel rather than just this chart — the
+              // try/catch is a hard backstop, not decoration, and the
+              // early returns keep an empty/single-point series (or a
+              // still-resizing width/height of 0) from ever reaching the
+              // drawing math below.
+              onPaint: {
+                var ctx = getContext("2d")
+                try {
+                  ctx.clearRect(0, 0, width, height)
+
+                  var s = historyCanvas.series
+                  if (!s || !s.ok || !s.points || s.points.length === 0) return
+                  if (width <= 0 || height <= 0) return
+
+                  var points = s.points
+                  var n = points.length
+                  var peak = Math.max(1, Number(s.peak) || 0)
+                  var gap = n > 1 ? Style.space(3) : 0
+                  var barWidth = Math.max(1, (width - gap * (n - 1)) / n)
+                  var todayDate = root.todayDate()
+
+                  for (var i = 0; i < n; i++) {
+                    var point = points[i] || {}
+                    var value = Math.max(0, Number(point.value) || 0)
+                    var ratio = Math.min(1, value / peak)
+                    // A nonzero day always shows at least a sliver, so a
+                    // quiet day never reads as visually identical to a
+                    // true zero (gap) day.
+                    var barHeight = value > 0 ? Math.max(2, ratio * height) : 0
+                    if (barHeight <= 0) continue
+
+                    var x = i * (barWidth + gap)
+                    var y = height - barHeight
+                    var isToday = String(point.date || "") === todayDate
+                    ctx.fillStyle = root.alpha(historyCanvas.barColor, isToday ? 0.85 : 0.5)
+                    ctx.fillRect(x, y, barWidth, barHeight)
+                  }
+                } catch (e) {
+                  // Swallow: a chart that fails to draw should leave a
+                  // blank strip, not take the rest of the panel down.
+                }
+              }
+            }
+
+            Text {
+              visible: !!(root.historySeries && !root.historySeries.ok)
+              width: parent.width
+              text: root.historyUnavailableText(root.historySeries)
+              textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
