@@ -2,6 +2,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+![Agent Usage Plus](preview.png)
+
 A fork of Omarchy's built-in `omarchy.agents` bar widget (Omarchy 4.0.0-1,
 plugin version 1.0.0), published standalone so it can evolve independently.
 
@@ -12,7 +14,7 @@ right in the bar, instead of the stock version's single icon:
 
 Click either one to open its panel:
 
-<img src="preview.png" alt="Claude Code tab" width="300"> <img src="preview-codex.png" alt="Codex tab" width="300">
+<img src="preview-claude.png" alt="Claude Code tab" width="300"> <img src="preview-codex.png" alt="Codex tab" width="300">
 
 Codex currently reports only a weekly limit (no session window), so its tab
 shows a single meter instead of the session+weekly pair Claude gets.
