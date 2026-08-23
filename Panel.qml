@@ -4,6 +4,8 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "logic/thresholds.js" as Thresholds
+import "logic/format.js" as Format
 
 Panel {
   id: root
@@ -42,9 +44,9 @@ Panel {
   readonly property var balance: provider ? (provider.balance || null) : null
   // A prepaid account runs low the way a subscription window fills up: the
   // last 10% of the funded credits lights the same alarm.
-  readonly property bool balanceAlarming: !!balance && balance.funded > 0
-    && balance.remaining / balance.funded <= 0.1
-  readonly property bool alarming: (!!headline && headline.percent >= 0.9) || balanceAlarming
+  readonly property bool balanceAlarming: !!balance
+    && Thresholds.isBalanceAlarming(balance.remaining, balance.funded)
+  readonly property bool alarming: (!!headline && Thresholds.isPercentAlarming(headline.percent)) || balanceAlarming
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
   function alpha(c, a) { return Qt.rgba(c.r, c.g, c.b, a) }
@@ -147,13 +149,7 @@ Panel {
   }
 
   function formatDuration(ms) {
-    if (!(ms > 0)) return "now"
-    var minutes = Math.floor(ms / 60000)
-    var hours = Math.floor(minutes / 60)
-    var days = Math.floor(hours / 24)
-    if (days > 0) return days + "d " + (hours % 24) + "h"
-    if (hours > 0) return hours + "h " + (minutes % 60) + "m"
-    return Math.max(1, minutes) + "m"
+    return Format.formatDuration(ms)
   }
 
   // ---------------------------------------------------------------- balance
@@ -161,18 +157,8 @@ Panel {
   // Prepaid agents report a credit ledger instead of rate-limit windows: the
   // record's balance object carries remaining, funded, and spent amounts.
 
-  function currencyPrefix(currency) {
-    var code = String(currency || "USD").toUpperCase()
-    if (code === "USD") return "$"
-    if (code === "EUR") return "€"
-    if (code === "GBP") return "£"
-    return code + " "
-  }
-
   function formatMoney(value, currency) {
-    var amount = Number(value)
-    if (!isFinite(amount)) amount = 0
-    return currencyPrefix(currency) + amount.toFixed(2)
+    return Format.formatMoney(value, currency)
   }
 
   function balanceDetailText(b) {
@@ -379,10 +365,10 @@ Panel {
     if (p && p.balance && p.balance.funded > 0) return 1 - p.balance.remaining / p.balance.funded
     return -1
   }
-  function providerAlarming(p) { return providerPercent(p) >= 0.9 }
+  function providerAlarming(p) { return Thresholds.isPercentAlarming(providerPercent(p)) }
   function providerPercentText(p) {
     var pct = providerPercent(p)
-    return pct >= 0 ? Math.round(pct * 100) + "%" : "…"
+    return pct >= 0 ? Format.formatPercent(pct) : "…"
   }
 
   // The weekly percent, when the bar's already showing session as the
@@ -938,7 +924,7 @@ Panel {
     id: limitRow
     property var window: null
 
-    readonly property bool alarming: window && window.percent >= 0.9
+    readonly property bool alarming: window && Thresholds.isPercentAlarming(window.percent)
 
     spacing: Style.space(6)
 
@@ -965,7 +951,7 @@ Panel {
       Text {
         id: limitValue
         text: limitRow.window && limitRow.window.percent >= 0
-          ? Math.round(limitRow.window.percent * 100) + "%"
+          ? Format.formatPercent(limitRow.window.percent)
           : "—"
         color: limitRow.alarming ? root.urgent : root.foreground
         font.family: root.fontFamily
