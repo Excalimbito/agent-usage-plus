@@ -69,6 +69,65 @@ Panel {
   readonly property int criticalThresholdPct: Number(usage.setting("criticalThresholdPct", Thresholds.DEFAULT_CRITICAL_PCT))
   readonly property var severityThresholds: ({ warn: warnThresholdPct, critical: criticalThresholdPct })
 
+  // ---------------------------------------------------------------- settings
+  //
+  // The expanded panel's settings section (issue 08) edits the same settings
+  // this file already reads elsewhere (warnThresholdPct/criticalThresholdPct
+  // above, refreshIntervalSec on `usage`, per-provider enabled/showInBar).
+  // Nothing here writes shell.json directly — every control below calls
+  // through to one of usage.set*() in Main.qml, which shells out to
+  // `omarchy bar set` (see Main.qml's "settings writes" section).
+
+  function providerSettingEnabled(id) {
+    var providers = usage.settings && usage.settings.providers ? usage.settings.providers : {}
+    return !providers[id] || providers[id].enabled !== false
+  }
+
+  function providerSettingShowInBar(id) {
+    var providers = usage.settings && usage.settings.providers ? usage.settings.providers : {}
+    return !providers[id] || providers[id].showInBar !== false
+  }
+
+  // One row per provider this machine knows about, whether or not it is
+  // currently enabled — `usage.agents` covers every discovered usage record
+  // regardless of the `enabled` setting (only `enabledProviders` filters that
+  // out), so a disabled provider still gets a row here with its toggle ready
+  // to flip back on. Falls back to whatever `providers` already names in
+  // settings for an id with no record on disk yet (a collector that was
+  // configured but has not written a file, or has been uninstalled).
+  readonly property var settingsProviders: {
+    var rev = usage.dataRevision
+    var seen = ({})
+    var rows = []
+    var agentsList = usage.agents || []
+    for (var i = 0; i < agentsList.length; i++) {
+      var record = agentsList[i] ? agentsList[i].record : null
+      if (!record || !record.id) continue
+      var id = Aggregate.sanitizeProviderId(record.id)
+      if (seen[id]) continue
+      seen[id] = true
+      rows.push({
+        providerId: id,
+        providerName: String(record.name || record.id),
+        enabled: providerSettingEnabled(id),
+        showInBar: providerSettingShowInBar(id)
+      })
+    }
+    var configured = usage.settings && usage.settings.providers ? usage.settings.providers : {}
+    for (var pid in configured) {
+      if (seen[pid]) continue
+      seen[pid] = true
+      rows.push({
+        providerId: pid,
+        providerName: pid,
+        enabled: providerSettingEnabled(pid),
+        showInBar: providerSettingShowInBar(pid)
+      })
+    }
+    rows.sort(function(a, b) { return a.providerId < b.providerId ? -1 : (a.providerId > b.providerId ? 1 : 0) })
+    return rows
+  }
+
   // `percent` here is the 0-1 fraction used throughout the panel's data
   // model; severityFor works in percentage points, so it's scaled up here.
   function severityForPercent(percent) {
@@ -389,6 +448,7 @@ Panel {
   Main {
     id: usage
     settings: root.settings
+    moduleId: root.moduleName
   }
 
   // Cheap enough to keep running: it only re-evaluates text bindings, and a
@@ -1026,6 +1086,215 @@ Panel {
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               horizontalAlignment: Text.AlignHCenter
+              wrapMode: Text.WordWrap
+            }
+          }
+
+          // ---------- Settings: the same values `omarchy bar set` edits,
+          // editable here without a terminal (issue 08). Session-visible
+          // only under the same `expanded` flag as the cross-provider
+          // section above; the settings themselves are obviously not
+          // session-only — every control writes through to shell.json.
+          PanelSeparator {
+            visible: root.expanded
+            foreground: root.foreground
+          }
+
+          Column {
+            id: settingsSection
+            visible: root.expanded
+            width: parent.width
+            spacing: Style.spacing.lg
+
+            PanelSectionHeader {
+              width: parent.width
+              text: "SETTINGS"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
+
+            // ----- Per-provider enabled / shown in bar -----
+            Column {
+              width: parent.width
+              spacing: Style.space(10)
+
+              Repeater {
+                model: root.settingsProviders
+
+                Column {
+                  id: providerSettingsRow
+                  required property var modelData
+                  width: parent.width
+                  spacing: Style.space(6)
+
+                  Text {
+                    text: providerSettingsRow.modelData.providerName
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: true
+                    elide: Text.ElideRight
+                    width: parent.width
+                  }
+
+                  Row {
+                    spacing: Style.spacing.xl
+
+                    Row {
+                      spacing: Style.space(6)
+
+                      ToggleSwitch {
+                        id: enabledSwitch
+                        anchors.verticalCenter: parent.verticalCenter
+                        checked: providerSettingsRow.modelData.enabled
+                        foreground: root.foreground
+                        accent: Color.accent
+                        onToggled: usage.setProviderEnabled(providerSettingsRow.modelData.providerId, !providerSettingsRow.modelData.enabled)
+                      }
+
+                      Text {
+                        text: "Enabled"
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                    }
+
+                    Row {
+                      spacing: Style.space(6)
+
+                      ToggleSwitch {
+                        id: showInBarSwitch
+                        anchors.verticalCenter: parent.verticalCenter
+                        checked: providerSettingsRow.modelData.showInBar
+                        foreground: root.foreground
+                        accent: Color.accent
+                        onToggled: usage.setProviderShowInBar(providerSettingsRow.modelData.providerId, !providerSettingsRow.modelData.showInBar)
+                      }
+
+                      Text {
+                        text: "Show in bar"
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                    }
+                  }
+                }
+              }
+
+              Text {
+                visible: root.settingsProviders.length === 0
+                width: parent.width
+                text: "No subscriptions discovered yet."
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+
+            // ----- Refresh interval -----
+            NumberField {
+              label: "Refresh interval (seconds)"
+              value: usage.refreshIntervalSec
+              from: 30
+              to: 3600
+              stepSize: 30
+              foreground: root.foreground
+              accent: Color.accent
+              fontFamily: root.fontFamily
+              onModified: function(v) { usage.setRefreshIntervalSec(v) }
+            }
+
+            // ----- Warn / critical thresholds -----
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+
+              Item {
+                width: parent.width
+                implicitHeight: warnLabel.implicitHeight
+
+                Text {
+                  id: warnLabel
+                  text: "Warn threshold"
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Text {
+                  text: root.warnThresholdPct + "%"
+                  color: root.warn
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+              }
+
+              PanelSlider {
+                width: parent.width
+                bar: root.bar
+                minimum: 1
+                maximum: 99
+                step: 1
+                integer: true
+                value: root.warnThresholdPct
+                onReleased: function(v) { usage.setWarnThresholdPct(v) }
+              }
+            }
+
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+
+              Item {
+                width: parent.width
+                implicitHeight: criticalLabel.implicitHeight
+
+                Text {
+                  id: criticalLabel
+                  text: "Critical threshold"
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Text {
+                  text: root.criticalThresholdPct + "%"
+                  color: root.urgent
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+              }
+
+              PanelSlider {
+                width: parent.width
+                bar: root.bar
+                minimum: 1
+                maximum: 100
+                step: 1
+                integer: true
+                value: root.criticalThresholdPct
+                onReleased: function(v) { usage.setCriticalThresholdPct(v) }
+              }
+            }
+
+            Text {
+              width: parent.width
+              text: "Settings write through `omarchy bar set` and apply immediately — no restart needed."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
               wrapMode: Text.WordWrap
             }
           }

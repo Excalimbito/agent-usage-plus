@@ -14,6 +14,12 @@ Item {
 
   property var settings: ({})
 
+  // Set by Panel.qml to its own moduleName ("io.github.viganogabriele.
+  // agent-usage-plus"). Needed here, not just there, because settings writes
+  // go through the same `omarchy bar set <id> ...` CLI the README documents,
+  // and that command needs the widget id as its first argument.
+  property string moduleId: ""
+
   readonly property string home: Quickshell.env("HOME") || ""
   readonly property string usageDir: (Quickshell.env("XDG_STATE_HOME") || home + "/.local/state") + "/omarchy/agents/usage"
 
@@ -287,6 +293,89 @@ Item {
     var value = settings ? settings[name] : undefined
     return value === undefined || value === null ? fallback : value
   }
+
+  // --------------------------------------------------------- settings writes
+  //
+  // The panel's settings section (issue 08) never touches shell.json itself:
+  // every write shells out to the same `omarchy bar set <id> <key> <value>
+  // --json` command documented in the README, so there is exactly one code
+  // path that can put a value into shell.json, whether it was typed at a
+  // terminal or clicked in the panel. `omarchy bar set` calls through to
+  // `omarchy-shell shell setBarWidget`, which is what actually rewrites
+  // shell.json and reloads it into every widget's `settings` property — so a
+  // successful write here reaches `root.settings` (and everything derived
+  // from it, like `refreshIntervalSec` above) through that same reactive
+  // path, with no extra plumbing and no reopening the panel required.
+  property var settingsWriteQueue: []
+  property bool settingsWriteRunning: false
+
+  Process {
+    id: settingsWriteProcess
+    running: false
+    onExited: function(exitCode) {
+      if (exitCode !== 0)
+        console.warn("agents/settings", "omarchy bar set failed:", settingsWriteProcess.command.join(" "))
+      root.settingsWriteRunning = false
+      root.pumpSettingsWriteQueue()
+    }
+
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: if (text.trim() !== "") console.warn("agents/settings", text.trim())
+    }
+  }
+
+  // Queued rather than fired immediately: a slider release and a toggle click
+  // landing in the same tick would otherwise race two `omarchy bar set`
+  // invocations against the same shell.json write lock. `jsonValue` is
+  // already a JSON-shaped string (a bare number, or a JSON object for
+  // `providers`) — always passed with `--json` so `set` parses it instead of
+  // writing it back out as a quoted string.
+  function writeSetting(key, jsonValue) {
+    if (root.moduleId === "") return
+    root.settingsWriteQueue.push({ key: key, jsonValue: jsonValue })
+    root.pumpSettingsWriteQueue()
+  }
+
+  function pumpSettingsWriteQueue() {
+    if (root.settingsWriteRunning) return
+    if (root.settingsWriteQueue.length === 0) return
+    var next = root.settingsWriteQueue.shift()
+    root.settingsWriteRunning = true
+    settingsWriteProcess.command = ["omarchy", "bar", "set", root.moduleId, next.key, next.jsonValue, "--json"]
+    settingsWriteProcess.running = true
+  }
+
+  function setRefreshIntervalSec(value) {
+    writeSetting("refreshIntervalSec", String(Math.round(Number(value))))
+  }
+
+  function setWarnThresholdPct(value) {
+    writeSetting("warnThresholdPct", String(Math.round(Number(value))))
+  }
+
+  function setCriticalThresholdPct(value) {
+    writeSetting("criticalThresholdPct", String(Math.round(Number(value))))
+  }
+
+  // Per-agent settings are nested, and `set` writes its key literally rather
+  // than walking a dotted path (see README), so a single-field change still
+  // has to round-trip the *whole* `providers` object — this rebuilds it from
+  // the current settings, patches one provider's one field, and writes it
+  // back the same shape `omarchy bar set ... providers '{...}' --json` from
+  // the README would.
+  function setProviderField(id, field, value) {
+    if (String(id || "") === "") return
+    var providers = {}
+    var current = settings && settings.providers ? settings.providers : {}
+    for (var pid in current) providers[pid] = Object.assign({}, current[pid])
+    if (!providers[id]) providers[id] = {}
+    providers[id][field] = value
+    writeSetting("providers", JSON.stringify(providers))
+  }
+
+  function setProviderEnabled(id, value) { setProviderField(id, "enabled", !!value) }
+  function setProviderShowInBar(id, value) { setProviderField(id, "showInBar", !!value) }
 
   // ------------------------------------------------------------------ sync
 
