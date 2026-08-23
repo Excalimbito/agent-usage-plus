@@ -21,7 +21,8 @@ into a writable Omarchy bin directory so Omarchy's usage updater invokes them.
 --enable-timer installs a 10-minute user-level systemd timer for the standalone
 runner. It is useful when the Omarchy bin directory is not user-writable.
 --with-transcript-cost additionally links cost-decorating Claude/Codex wrappers.
-It refuses to replace an existing collector; preserve a base scanner first.
+An existing user collector is moved once to a recoverable
+`.agent-usage-plus-base` sibling which the wrapper runs as its base scanner.
 EOF
 }
 
@@ -56,8 +57,15 @@ if [[ -n $omarchy_bin ]]; then
   if $with_transcript_cost; then
     for provider in claude codex; do
       target="$omarchy_bin/omarchy-agent-usage-$provider"
-      [[ ! -e $target && ! -L $target ]] || { echo "Refusing to replace existing $target; preserve it as AGENT_USAGE_PLUS_${provider^^}_BASE_COLLECTOR first." >&2; exit 1; }
-      ln -s "$data_root/bin/omarchy-agent-usage-$provider-cost" "$target"
+      backup="$target.agent-usage-plus-base"
+      if [[ -e $target && ! -L $target ]]; then
+        [[ ! -e $backup ]] || { echo "Refusing to replace $target: backup already exists at $backup" >&2; exit 1; }
+        mv "$target" "$backup"
+      elif [[ -L $target && $(readlink -f "$target") != "$data_root/bin/omarchy-agent-usage-$provider-cost" ]]; then
+        echo "Refusing to replace an unknown symlink: $target" >&2
+        exit 1
+      fi
+      ln -sfn "$data_root/bin/omarchy-agent-usage-$provider-cost" "$target"
     done
   fi
 fi

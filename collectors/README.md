@@ -79,9 +79,10 @@ AGENT_USAGE_PLUS_CODEX_BASE_COLLECTOR="$HOME/.local/bin/omarchy-agent-usage-code
   ./collectors/bin/omarchy-agent-usage-codex-cost | jq '.cost'
 ```
 
-The optional `--with-transcript-cost` installer flag will only add updater
-wrappers when those target names are free; it deliberately refuses to
-overwrite your existing Claude/Codex collectors. See
+With `--with-transcript-cost`, an existing regular user collector is moved
+once to a recoverable `.agent-usage-plus-base` sibling; the wrapper invokes
+that preserved scanner and then adds cost. Unknown symlinks and a pre-existing
+backup stop the install rather than being overwritten. See
 [`../docs/cost-estimation.md`](../docs/cost-estimation.md) for price-list
 version and model-coverage rules.
 

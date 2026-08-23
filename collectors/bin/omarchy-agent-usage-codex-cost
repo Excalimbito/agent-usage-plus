@@ -12,7 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from agent_usage_collectors.transcript_cost import decorate  # noqa: E402
 
-base = os.environ.get("AGENT_USAGE_PLUS_CODEX_BASE_COLLECTOR", "/usr/share/omarchy/bin/omarchy-agent-usage-codex")
+system_base = Path("/usr/share/omarchy/bin/omarchy-agent-usage-codex")
+saved_base = Path.home() / ".local/bin/omarchy-agent-usage-codex.agent-usage-plus-base"
+base = os.environ.get("AGENT_USAGE_PLUS_CODEX_BASE_COLLECTOR") or str(system_base if system_base.is_file() else saved_base)
 try:
     result = subprocess.run([base, *sys.argv[1:]], text=True, capture_output=True, check=True, timeout=90)
     record = json.loads(result.stdout)
