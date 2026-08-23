@@ -496,8 +496,8 @@ Panel {
         + names.join(", ") + "."
     }
     var period = String(cost.period || "")
-    return (period !== "" ? period + " · " : "")
-      + "based on local transcript tokens at published API rates. Not a bill."
+    return (period !== "" ? period : "Transcript usage")
+      + " priced at published API rates. Not a bill."
   }
 
   function dayTooltip(day, today) {
@@ -1547,7 +1547,7 @@ Panel {
             width: parent.width
             spacing: Style.spacing.md
 
-            readonly property int maxSummaryDays: 4
+            readonly property int maxSummaryDays: 3
             readonly property int availableDayCount: root.provider && root.provider.recentDays
               ? root.provider.recentDays.length : 0
             readonly property var days: root.summaryDays(root.provider, maxSummaryDays)
