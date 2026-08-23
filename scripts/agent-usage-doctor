@@ -154,9 +154,11 @@ def check_limits($r):
         elif ($entry|has("percent")|not) then "`limits[\($i)].percent` is required (missing)"
         elif ($entry.percent|type) != "number" then "`limits[\($i)].percent` must be a number (got \($entry.percent|type))"
         elif ($entry.percent < 0 or $entry.percent > 1) then "`limits[\($i)].percent` must be between 0.0 and 1.0 (got: \($entry.percent))"
+        elif ($entry|has("tokenLimit")) and ($entry.tokenLimit|is_nonneg_int|not or $entry.tokenLimit <= 0) then "`limits[\($i)].tokenLimit` must be a positive integer (got: \($entry.tokenLimit|tojson))"
         elif ($entry|has("label")) and ($entry.label|type) != "string" then "`limits[\($i)].label` must be a string"
         elif ($entry|has("title")) and ($entry.title|type) != "string" then "`limits[\($i)].title` must be a string"
         elif ($entry|has("resetsAt")) and ($entry.resetsAt != "") and ($entry.resetsAt|iso_datetime|not) then "`limits[\($i)].resetsAt` is not ISO-8601 (got: \($entry.resetsAt|trunc(40)|tojson))"
+        elif ($entry|has("startedAt")) and ($entry.startedAt != "") and ($entry.startedAt|iso_datetime|not) then "`limits[\($i)].startedAt` is not ISO-8601 (got: \($entry.startedAt|trunc(40)|tojson))"
         else empty
         end] | summarize("limits"))
   end;
@@ -176,21 +178,17 @@ def check_balance($r):
     ]
   end;
 
-# `todayTokensByModel` is documented as a flat integer per model id. Some
-# real-world records (including this repo's own -ok.json fixtures) instead
-# put a full TokenBucket object here, matching `modelUsage`'s shape. Accept
-# both so the doctor doesn't reject data the panel itself tolerates, but
-# still catch anything that's neither.
+# TokenBucket is canonical for `todayTokensByModel` as well as `modelUsage`.
+# Scalars lose the cache/input/output split and used to corrupt sync merges.
 def check_today_tokens_by_model($r):
   if ($r|has("todayTokensByModel")|not) then []
   elif ($r.todayTokensByModel|type) != "object" then ["`todayTokensByModel` must be an object (got \($r.todayTokensByModel|type))"]
   else
     ([$r.todayTokensByModel|to_entries[] as $e
-      | if ($e.value|is_nonneg_int) then empty
-        elif ($e.value|type) == "object" then
+      | if ($e.value|type) == "object" then
           (["inputTokens","outputTokens","cacheReadInputTokens","cacheCreationInputTokens"][] as $f
            | if ($e.value|has($f)) and ($e.value[$f]|is_nonneg_int|not) then "`todayTokensByModel.\($e.key).\($f)` must be a non-negative integer (got: \($e.value[$f]|tojson))" else empty end)
-        else "`todayTokensByModel.\($e.key)` must be a non-negative integer (got: \($e.value|tojson))"
+        else "`todayTokensByModel.\($e.key)` must be a TokenBucket object (not \($e.value|type))"
         end] | summarize("todayTokensByModel"))
   end;
 

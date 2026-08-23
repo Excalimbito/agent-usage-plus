@@ -81,7 +81,7 @@ report for it right now" — not "no one should bother."
 | `todayPrompts` | integer | no | Number of prompts sent today (local time). Leave at `0`/omit when `hasPromptStats` is `false`. |
 | `todaySessions` | integer | no | Number of distinct sessions today. |
 | `todayTotalTokens` | integer | no | Total tokens (input + output + cache, however your provider buckets them) consumed today. |
-| `todayTokensByModel` | object: `{ "<modelId>": integer }` | no | Today's token total per model id — a flat number per model, **not** the same shape as `modelUsage` (see below). Capped at 100 distinct model ids; extra ones are dropped. |
+| `todayTokensByModel` | object: `{ "<modelId>": TokenBucket }` | no | Today's per-model token split, using the exact same TokenBucket shape as `modelUsage`. Capped at 100 distinct model ids; extra ones are dropped. This is canonical: do not write legacy scalar totals. |
 | `recentDays` | array of `{ "date": "YYYY-MM-DD", "messageCount": integer }` | no | One entry per day, oldest first, ending on today. Despite the field's name, `messageCount` is a **token total for that day**, not a count of messages — this is a legacy name kept for compatibility with older snapshots and must not be reinterpreted. Capped at 31 entries; see `historyDays` below for how many of those entries a collector should actually try to fill. |
 | `totalPrompts` | integer | no | All-time (or as-far-back-as-your-source-goes) prompt count. |
 | `totalSessions` | integer | no | All-time session count. |
@@ -89,7 +89,7 @@ report for it right now" — not "no one should bother."
 | `activeDates` | array of `"YYYY-MM-DD"` strings | no | The actual set of active dates, used (when present) to union activity across synced devices rather than trusting each device's own `activeDays` count. Capped at 400 entries. |
 | `modelUsage` | object: `{ "<modelId>": TokenBucket }` | no | All-time (or as-far-back-as-your-source-goes) token usage per model, broken into the four-field bucket described below. Capped at 100 distinct model ids. |
 
-### TokenBucket shape (used by `modelUsage`)
+### TokenBucket shape (used by `todayTokensByModel` and `modelUsage`)
 
 ```json
 {
@@ -122,7 +122,9 @@ hover.
 | `label` | string | recommended | Free-text description of the window, e.g. `"Session (5-hour)"`, `"Weekly (7-day)"`, `"30m window"`. Used to infer `title` when `title` is absent, by looking for words like "week"/"7-day"/"month"/"30-day"/"session". Max 80 chars. |
 | `title` | string | no | Explicit, already-resolved window name (`"Session"`, `"Weekly"`, `"Monthly"`, or a model name like `"Opus 5 Weekly"` for a model-scoped limit). **Prefer setting this explicitly** — label-sniffing breaks on a label like `"Opus 5 (1M context)"`, where `"1M"` gets misread as a one-minute window. If your allowance is scoped to a specific model, title it `"<model display name> <Window>"` so it reads apart from the account-wide windows. Max 80 chars. |
 | `percent` | number, `0.0`-`1.0` | **yes** | Fraction of the allowance used, already normalized to `0.0`-`1.0` (not `0`-`100`). A negative value or a missing field causes the panel to drop that limit entry entirely rather than show a nonsensical number — so omit an entry you can't compute rather than sending a placeholder. |
+| `tokenLimit` | integer, > 0 | no | The actual token allowance for this exact window. Only provide it when the provider exposes a real quota, not an inferred conversion from `percent`. Together with token history and `resetsAt`, it enables the panel's burn-rate projection; without it the meter and reset countdown still work but no exhaustion prediction is shown. |
 | `resetsAt` | string (ISO-8601, with timezone) | no | When the window resets. Used to render "Resets in 3h 12m" and, on the next run, to decide whether a cached percentage is still valid (a window whose `resetsAt` has already passed is treated as stale and dropped rather than shown as a leftover reading). Omit or leave empty when unknown — the panel then just doesn't show a countdown. |
+| `startedAt` | string (ISO-8601, with timezone) | no | The actual start of this exact window. Keep it when the source has it: it makes cached readings auditable and is available to future finer-grained projection logic. Do not guess from a label. |
 
 Up to 20 limit entries per record are kept; extras are dropped. The panel
 picks the highest-`percent` entry as the "binding" one for the bar's meter
@@ -192,6 +194,7 @@ number — never present it as "this is what you were charged."
 |---|---|---|---|
 | `estimateUsd` | number, ≥ 0 | **yes** (to make the object count at all) | The headline derived estimate for `period`, in US dollars. A missing or negative value makes the panel treat the whole `cost` object as absent, the same convention `balance.remaining` uses. |
 | `period` | string | no | Free-text label for the window `estimateUsd` covers, e.g. `"30d"`, `"This month"`, `"All time"`. Shown next to the estimate; omit it if your estimate doesn't have a clean window. Max 20 chars. |
+| `pricingVersion` | string | recommended | Version of the rate catalogue used to compute this estimate (for the bundled estimator, e.g. `"2026-08-23"`). This makes a cached estimate auditable after a price update. |
 | `byModel` | array of `{ "model": string, "usd": number, "tokens": integer }` | no | Per-model breakdown of the same estimate. Capped at 100 entries; a negative `usd` reads as `0`. |
 | `byDay` | array of `{ "date": "YYYY-MM-DD", "usd": number }` | no | Per-day breakdown of the same estimate, meant to line up with `recentDays`. Capped at 31 entries; a negative `usd` reads as `0`. |
 
@@ -199,13 +202,12 @@ Like `limits` and `balance`, `cost` is per-account and is never merged or
 summed across synced devices — the panel always reads it straight off the
 selected device's own record.
 
-No shipped collector reports `cost` today: writing a cost-estimating
-collector (reading transcripts/API history and applying a price list) is
-out of scope for this repo — see `CONTRIBUTING.md`'s repo-boundary note.
-This section documents the shape so a third-party collector can add it
-without any change to this repo; the panel already renders an "Est. API
-cost" row whenever a record includes a valid `cost` block, and renders
-nothing extra when it's absent.
+The reusable, versioned estimator is [`logic/cost.js`](../logic/cost.js),
+with its official-rate catalogue in
+[`logic/api-price-catalogue.js`](../logic/api-price-catalogue.js). It is
+intended for the Claude and Codex transcript collectors. It refuses to emit
+an estimate when any used model has no exact catalogue entry; surface its
+`unknownModels` result to the user rather than publishing a partial total.
 
 ## Error states
 
@@ -315,7 +317,14 @@ balance yet, some tokens for today:
   "name": "Example Agent",
   "ready": true,
   "todayTotalTokens": 1234,
-  "todayTokensByModel": { "example-model-v1": 1234 }
+  "todayTokensByModel": {
+    "example-model-v1": {
+      "inputTokens": 1234,
+      "outputTokens": 0,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0
+    }
+  }
 }
 ```
 
@@ -349,6 +358,8 @@ full week of token history, and a synced-friendly `activeDates` list:
       "label": "Session (5-hour)",
       "title": "Session",
       "percent": 0.42,
+      "tokenLimit": 500000,
+      "startedAt": "2026-08-23T13:00:00+00:00",
       "resetsAt": "2026-08-23T18:00:00+00:00"
     },
     {
@@ -387,8 +398,8 @@ full week of token history, and a synced-friendly `activeDates` list:
   "todaySessions": 4,
   "todayTotalTokens": 128000,
   "todayTokensByModel": {
-    "example-model-v1": 96000,
-    "example-model-v1-mini": 32000
+    "example-model-v1": { "inputTokens": 96000, "outputTokens": 0, "cacheReadInputTokens": 0, "cacheCreationInputTokens": 0 },
+    "example-model-v1-mini": { "inputTokens": 32000, "outputTokens": 0, "cacheReadInputTokens": 0, "cacheCreationInputTokens": 0 }
   },
   "recentDays": [
     { "date": "2026-08-17", "messageCount": 210000 },

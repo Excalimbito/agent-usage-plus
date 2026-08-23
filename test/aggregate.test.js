@@ -209,6 +209,12 @@ test("aggregateSnapshots: device-scoped totals sum, not double-count", () => {
   assert.equal(claude.totalSessions, 50) // 20 + 30
 })
 
+test("aggregateSnapshots: TokenBucket-shaped todayTokensByModel merges every bucket field", () => {
+  const { snapshots } = loadTwoDeviceSnapshot()
+  const bucket = Aggregate.aggregateSnapshots(snapshots).providers.claude.todayTokensByModel["claude-opus-4-20250514"]
+  assert.deepEqual(bucket, { inputTokens: 7000, outputTokens: 2500, cacheReadInputTokens: 2000, cacheCreationInputTokens: 300 })
+})
+
 test("aggregateSnapshots: account-scoped stats take the widest value instead of summing", () => {
   const snapshots = [
     { deviceId: "a", providers: { fireworks: { scope: "account", totalPrompts: 40, recentDays: [], activeDates: [] } } },

@@ -81,6 +81,17 @@ test("agent-usage-doctor: oversized.json exits non-zero due to real contract vio
   assert.match(stderr, /is not ISO-8601/)
 })
 
+test("agent-usage-doctor: rejects legacy scalar todayTokensByModel values", () => {
+  const input = JSON.stringify({ id: "example", todayTokensByModel: { model: 123 } })
+  try {
+    execFileSync(doctorPath, [], { input, encoding: "utf8" })
+    assert.fail("expected scalar TokenBucket legacy form to fail")
+  } catch (err) {
+    assert.notEqual(err.status, 0)
+    assert.match(err.stderr, /TokenBucket object/)
+  }
+})
+
 // -------------------------------------------------------------------- usage
 
 test("agent-usage-doctor: missing file argument exits non-zero with a clear message", () => {

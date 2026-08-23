@@ -1,0 +1,22 @@
+#!/usr/bin/env node
+"use strict"
+
+// Small JSON-in/JSON-out bridge for non-JavaScript collectors. Input is the
+// object accepted by logic/cost.js; output is its `{ cost, unknownModels,
+// pricingVersion }` result. No credentials, files, or network access here.
+
+const fs = require("node:fs")
+const Cost = require("../logic/cost.js")
+
+const raw = fs.readFileSync(0, "utf8").trim()
+if (!raw) {
+  process.stderr.write("calculate-api-cost: expected JSON input on stdin\n")
+  process.exit(2)
+}
+
+try {
+  process.stdout.write(JSON.stringify(Cost.calculateCost(JSON.parse(raw))) + "\n")
+} catch (error) {
+  process.stderr.write("calculate-api-cost: invalid JSON: " + error.message + "\n")
+  process.exit(2)
+}
