@@ -43,8 +43,9 @@ plugin's generic bar glyph. To propose one:
    (`assets/<id>.svg`, optional `assets/<id>-light.svg`), the list of
    already-used and reserved ids, and the SVG guidelines (viewBox,
    monochrome vs. brand-colored, file size, licensing).
-2. Open a PR that adds only the SVG file(s) for your agent's `<id>` — no
-   QML changes are needed for an icon alone.
+2. Open a PR that adds the SVG file(s) and registers their exact filenames
+   in `Panel.qml`'s `providerIconAssets` map. This prevents a missing asset
+   URL from becoming a recurring runtime warning for every refresh.
 3. If the id doesn't correspond to a collector that exists yet, that's
    fine; say so in the PR description so the icon is understood as a
    placeholder/reservation rather than a claim of current support.

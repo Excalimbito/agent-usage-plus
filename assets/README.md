@@ -17,9 +17,10 @@ and how to contribute a new one.
   orange) doesn't need one.
 
 `<id>` must be exactly the same id the collector uses for its record's `id`
-field and its `<id>.json` filename (`[A-Za-z0-9_-]{1,64}`) — there is no
-separate registration step beyond dropping the file here with the matching
-name.
+field and its `<id>.json` filename (`[A-Za-z0-9_-]{1,64}`). Register the
+exact file name in `Panel.qml`'s `providerIconAssets` map too; this explicit
+registry keeps providers without an icon from attempting a missing URL at
+runtime.
 
 ## Known ids
 

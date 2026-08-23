@@ -398,14 +398,32 @@ Panel {
 
   // ---------------------------------------------------------------- content
 
-  // The plan you pay for, under the name of the tool it pays for. Limits live
-  // in their own section; the hero just says what this is.
+  // The plan you pay for, under the name of the tool it pays for. A collector
+  // status is deliberately *not* used here: repeating "Waiting for API key"
+  // in the hero and again in the status card made an unconfigured provider
+  // look like two errors and pushed useful controls below the fold.
   function heroMeta(p) {
     if (!p) return ""
-    if (String(p.usageStatusText || "") !== "") return p.usageStatusText
     var tier = String(p.tierLabel || "")
     if (tier === "") return "Subscription"
     return tier.charAt(0).toUpperCase() + tier.slice(1)
+  }
+
+  // Missing setup is actionable but not an emergency. Reserve the urgent
+  // treatment for an account/endpoint that was configured and then failed;
+  // this lets a panel with several optional API collectors stay calm and
+  // readable instead of becoming a stack of red warnings.
+  function statusSeverity(p) {
+    var status = String(p && p.usageStatusText || "").toLowerCase()
+    if (status.indexOf("waiting for") >= 0 || status.indexOf("unavailable") >= 0
+      || status.indexOf("meter unavailable") >= 0) return "warn"
+    if (status.indexOf("rejected") >= 0 || status.indexOf("error") >= 0
+      || status.indexOf("could not") >= 0) return "critical"
+    return "warn"
+  }
+
+  function statusColor(p) {
+    return statusSeverity(p) === "critical" ? root.urgent : root.warn
   }
 
   // Local calendar date, recomputed from nowMs so a panel left open across
@@ -436,6 +454,48 @@ Panel {
   function providerChipLabel(provider) {
     var name = String(provider && provider.providerName || "")
     return name.length > 14 ? name.slice(0, 13) + "…" : name
+  }
+
+  // A full collector can retain up to 90 days. Rendering every one as a
+  // collapsed row made a normal panel hundreds of pixels taller than the
+  // screen, even before a person opened the detailed chart. Keep the useful
+  // recent week in the summary; the explicit details control exposes every
+  // available day and range without silently discarding data.
+  function summaryDays(p, limit) {
+    var list = p && Array.isArray(p.recentDays) ? p.recentDays.slice() : []
+    list.sort(function(a, b) {
+      var left = String(a && a.date || "")
+      var right = String(b && b.date || "")
+      return left < right ? -1 : (left > right ? 1 : 0)
+    })
+    var count = Math.max(1, Number(limit) || 7)
+    return list.length > count ? list.slice(list.length - count) : list
+  }
+
+  function dayPeak(days) {
+    var list = Array.isArray(days) ? days : []
+    var peak = 0
+    for (var i = 0; i < list.length; i++) peak = Math.max(peak, Number(list[i].messageCount || 0))
+    return peak
+  }
+
+  function costSummaryText(cost) {
+    if (!cost) return ""
+    var period = String(cost.period || "")
+    var label = cost.incomplete ? "Partial estimate" : "Published API rates"
+    return period === "" ? label : label + " · " + period
+  }
+
+  function costHelpText(cost) {
+    if (!cost) return ""
+    var unknown = cost.unknownModels || []
+    if (cost.incomplete) {
+      var names = []
+      for (var i = 0; i < unknown.length; i++) names.push(usage.friendlyModelName(unknown[i]))
+      return "Excludes " + (names.length === 1 ? "unpriced model: " : "unpriced models: ")
+        + names.join(", ") + "."
+    }
+    return "Based on local transcript tokens at published API rates. Not a bill."
   }
 
   function dayTooltip(day, today) {
@@ -529,9 +589,19 @@ Panel {
       + 0.0722 * colorChannelLuminance(color.b)
   }
 
-  // Marks resolve by convention, so a new agent's data file needs nothing
-  // from this panel: assets/<id>.svg if it ships one, the module's bar glyph
-  // if it doesn't.
+  // An asset path has to be explicitly registered. QML's Image cannot probe a
+  // relative URL quietly, so deriving `assets/<provider>.svg` made every
+  // provider without a bundled mark emit a runtime warning on every refresh.
+  // Keep this deliberately small: unregistered providers use the readable
+  // initial below instead of an invented or unlicensed brand asset.
+  readonly property var providerIconAssets: ({
+    claude: { defaultAsset: "claude.svg" },
+    codex: { defaultAsset: "codex.svg", lightAsset: "codex-light.svg" },
+    fireworks: { defaultAsset: "fireworks.svg" }
+  })
+
+  // Known marks resolve through the registry above; everything else falls
+  // back to the module's glyph/initial without attempting a missing URL.
   //
   // providerId ultimately comes from a usage record's "id" field (or, when
   // synced, a key inside another machine's snapshot file) and Main.qml's
@@ -543,10 +613,12 @@ Panel {
     if (!p) return []
     var id = String(p.providerId || "")
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return []
+    var assets = root.providerIconAssets[id]
+    if (!assets) return []
     var candidates = []
-    if (colorLuminance(surfaceColor || Color.background) >= 0.5)
-      candidates.push(Qt.resolvedUrl("assets/" + id + "-light.svg"))
-    candidates.push(Qt.resolvedUrl("assets/" + id + ".svg"))
+    if (colorLuminance(surfaceColor || Color.background) >= 0.5 && assets.lightAsset)
+      candidates.push(Qt.resolvedUrl("assets/" + assets.lightAsset))
+    if (assets.defaultAsset) candidates.push(Qt.resolvedUrl("assets/" + assets.defaultAsset))
     return candidates
   }
 
@@ -984,7 +1056,7 @@ Panel {
                 PanelActionButton {
                   visible: !root.settingsOpen
                   iconText: root.expanded ? "󰅃" : "󰅀"
-                  tooltipText: root.expanded ? "Hide model breakdown (e)" : "Show all-subscription model breakdown (e)"
+                  tooltipText: root.expanded ? "Hide details (e)" : "Show detailed history and all-provider models (e)"
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   bordered: true
@@ -1099,18 +1171,61 @@ Panel {
             ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
           }
 
-          // A clipped horizontal row without a count looked exactly like the
-          // panel had discovered only its first three providers. Make the
-          // additional subscriptions explicit, while retaining the compact
-          // scrollable controls above instead of stacking a tall chip grid.
-          Text {
+          // A clipped horizontal row without controls looked exactly like the
+          // panel had discovered only its first few providers. The count and
+          // arrows make every installed provider reachable with a click as
+          // well as by touch/keyboard; no one has to guess that the strip
+          // scrolls or remember h/l just to find provider four.
+          Item {
             visible: root.providers.length > 3
             width: parent.width
-            text: (root.providerIndex + 1) + " of " + root.providers.length + " subscriptions · swipe or h/l to browse"
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            horizontalAlignment: Text.AlignRight
+            implicitHeight: providerNavigatorText.implicitHeight
+
+            Text {
+              id: providerNavigatorText
+              anchors.left: parent.left
+              anchors.right: providerPrevious.left
+              anchors.rightMargin: Style.space(8)
+              anchors.verticalCenter: parent.verticalCenter
+              text: (root.providerIndex + 1) + " of " + root.providers.length + " subscriptions"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              elide: Text.ElideRight
+            }
+
+            PanelActionButton {
+              id: providerPrevious
+              anchors.right: providerNext.left
+              anchors.rightMargin: Style.space(4)
+              anchors.verticalCenter: parent.verticalCenter
+              iconText: "󰅁"
+              tooltipText: "Previous subscription (h)"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              bordered: true
+              focusable: true
+              onClicked: {
+                root.cursorActive = true
+                root.selectProvider(root.providerIndex - 1)
+              }
+            }
+
+            PanelActionButton {
+              id: providerNext
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              iconText: "󰅂"
+              tooltipText: "Next subscription (l)"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              bordered: true
+              focusable: true
+              onClicked: {
+                root.cursorActive = true
+                root.selectProvider(root.providerIndex + 1)
+              }
+            }
           }
 
           // ---------- Status ----------
@@ -1118,8 +1233,8 @@ Panel {
               visible: !!root.provider && String(root.provider.usageStatusText || "") !== ""
               width: parent.width
               implicitHeight: statusContent.implicitHeight + Style.spacing.xl * 2
-              color: root.alpha(root.urgent, 0.10)
-              borderSpec: Border.flat(root.alpha(root.urgent, 0.35), 1)
+              color: root.alpha(root.statusColor(root.provider), 0.10)
+              borderSpec: Border.flat(root.alpha(root.statusColor(root.provider), 0.35), 1)
               radius: Style.cornerRadius
 
               Column {
@@ -1135,7 +1250,7 @@ Panel {
                   width: parent.width
                   text: root.provider ? String(root.provider.usageStatusText || "") : ""
                   textFormat: Text.PlainText
-                  color: root.foreground
+                  color: root.statusColor(root.provider)
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.bodySmall
                   font.bold: true
@@ -1283,8 +1398,7 @@ Panel {
 
                 Text {
                   id: costLabel
-                  text: "Est. API cost" + (root.cost && root.cost.incomplete ? " · partial" : "")
-                    + (root.cost && root.cost.period ? " (" + root.cost.period + ")" : "")
+                  text: root.costSummaryText(root.cost)
                   color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
@@ -1330,9 +1444,7 @@ Panel {
 
             Text {
               width: parent.width
-              text: root.cost && root.cost.incomplete
-                ? "Priced models only; " + (root.cost.unknownModels || []).join(", ") + " has no published API rate."
-                : "Derived estimate at published API rates — not a real bill."
+              text: root.costHelpText(root.cost)
               textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
@@ -1389,8 +1501,11 @@ Panel {
             width: parent.width
             spacing: Style.spacing.md
 
-            readonly property var days: root.provider ? (root.provider.recentDays || []) : []
-            readonly property real peak: Math.max(1, root.weekPeak(root.provider))
+            readonly property int maxSummaryDays: 7
+            readonly property int availableDayCount: root.provider && root.provider.recentDays
+              ? root.provider.recentDays.length : 0
+            readonly property var days: root.summaryDays(root.provider, maxSummaryDays)
+            readonly property real peak: Math.max(1, root.dayPeak(days))
 
             PanelSectionHeader {
               width: parent.width
@@ -1413,6 +1528,17 @@ Panel {
                 // hand us a window that stops short of today.
                 today: String(modelData.date || "") === root.todayDate()
               }
+            }
+
+            Text {
+              visible: usageSection.availableDayCount > usageSection.days.length
+              width: parent.width
+              text: "Showing the latest " + usageSection.days.length + " of "
+                + usageSection.availableDayCount + " days · use the details button above for the full history"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
             }
           }
 
