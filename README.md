@@ -112,6 +112,14 @@ cross-device aggregation); `Agent.qml` is the per-record file watcher.
   to the heaviest model,
   the same way the weekly chart scales to its busiest day. Hover for the
   input / output / cache split.
+- **Est. API cost** *(optional)* — a collapsible row showing what a
+  provider's usage would have cost at published API rates, if that
+  provider's collector reports it. This is a derived estimate, not a real
+  bill, and the panel always labels it as one. None of the three shipped
+  providers (Claude, Codex, Fireworks) report this today, so this row is
+  invisible on a stock install — it only appears once some collector adds
+  the optional `cost` block documented in
+  [`docs/collector-contract.md`](docs/collector-contract.md).
 
 A subscription appears only when it is enabled in settings and has actually
 recorded usage — on this machine or on a synced one. With one such agent

@@ -27,7 +27,8 @@ test("fixtures: every *-ok / error / sync fixture is valid JSON", () => {
     "claude-auth-error.json",
     "codex-endpoint-down.json",
     "sync-snapshot-two-devices.json",
-    "oversized.json"
+    "oversized.json",
+    "claude-with-cost.json"
   ]
   for (const name of validFixtures) {
     assert.doesNotThrow(() => readFixture(name), `${name} should be valid JSON`)
@@ -49,6 +50,78 @@ test("mergeProviderDisplay: a healthy Claude record keeps its session+weekly lim
   assert.equal(display.limits[0].label, "Session")
   assert.equal(display.limits[1].label, "Weekly")
   assert.equal(display.syncEnabled, false)
+  assert.ok(Aggregate.providerHasData(display))
+})
+
+// -------------------------------------------------------------------- cost
+
+test("mergeProviderDisplay: a record without a cost block merges with cost: null (issue #12 regression)", () => {
+  for (const name of ["claude-ok.json", "codex-ok.json", "fireworks-ok.json"]) {
+    const record = readFixture(name)
+    assert.equal(record.cost, undefined, `${name} fixture should not define cost`)
+    const display = Aggregate.mergeProviderDisplay(record, null, null)
+    assert.equal(display.cost, null, `${name} should merge to cost: null`)
+  }
+})
+
+test("mergeProviderDisplay: existing fixtures merge identically apart from the new cost:null field", () => {
+  // A structural regression check, not just a value spot-check: every other
+  // field mergeProviderDisplay produces for these fixtures must be exactly
+  // what it produced before this issue's change, so this diffs the whole
+  // display object with `cost` removed.
+  for (const name of ["claude-ok.json", "codex-ok.json", "fireworks-ok.json", "claude-auth-error.json", "codex-endpoint-down.json"]) {
+    const record = readFixture(name)
+    const display = Aggregate.mergeProviderDisplay(record, null, null)
+    assert.equal(display.cost, null)
+    const { cost, ...rest } = display
+    // Re-running the merge on a record with cost stripped (a no-op here,
+    // since none of these fixtures set it) must produce the same rest.
+    const displayAgain = Aggregate.mergeProviderDisplay(record, null, null)
+    const { cost: costAgain, ...restAgain } = displayAgain
+    assert.deepEqual(rest, restAgain)
+  }
+})
+
+test("costValue: parses estimateUsd, period, byModel, and byDay from a compliant cost block", () => {
+  const record = readFixture("claude-with-cost.json")
+  const cost = Aggregate.costValue(record.cost)
+  assert.ok(cost)
+  assert.equal(cost.estimateUsd, 12.43)
+  assert.equal(cost.period, "30d")
+  assert.equal(cost.byModel.length, 2)
+  assert.equal(cost.byModel[0].model, "claude-sonnet-5")
+  assert.equal(cost.byModel[0].usd, 8.1)
+  assert.equal(cost.byModel[0].tokens, 540000000)
+  assert.equal(cost.byDay.length, 2)
+  assert.equal(cost.byDay[1].date, "2026-08-23")
+  assert.equal(cost.byDay[1].usd, 0.87)
+})
+
+test("costValue: a missing/negative estimateUsd makes the whole cost object absent", () => {
+  assert.equal(Aggregate.costValue(null), null)
+  assert.equal(Aggregate.costValue({}), null)
+  assert.equal(Aggregate.costValue({ estimateUsd: -1 }), null)
+  assert.equal(Aggregate.costValue({ estimateUsd: "not a number" }), null)
+})
+
+test("costValue: tolerates a bare estimateUsd with no byModel/byDay", () => {
+  const cost = Aggregate.costValue({ estimateUsd: 5 })
+  assert.equal(cost.estimateUsd, 5)
+  assert.deepEqual(cost.byModel, [])
+  assert.deepEqual(cost.byDay, [])
+})
+
+test("mergeProviderDisplay: a record with a cost block surfaces it while everything else renders as normal", () => {
+  const record = readFixture("claude-with-cost.json")
+  const display = Aggregate.mergeProviderDisplay(record, null, null)
+  assert.ok(display.cost)
+  assert.equal(display.cost.estimateUsd, 12.43)
+  assert.equal(display.cost.period, "30d")
+  // Limits/balance/everything else keeps working exactly as the plain
+  // claude-ok.json fixture does.
+  assert.equal(display.limits.length, 2)
+  assert.equal(display.limits[0].label, "Session")
+  assert.equal(display.balance, null)
   assert.ok(Aggregate.providerHasData(display))
 })
 
