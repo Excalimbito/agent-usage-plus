@@ -1,0 +1,374 @@
+# Collector contract
+
+This is the full spec for the JSON record a collector writes to make an AI
+coding subscription show up in this panel. Everything the panel draws comes
+from one file per agent; write a compliant one and the plugin needs no code
+change to pick it up.
+
+You should be able to write a working collector from this file alone,
+without reading any QML or any of Omarchy's own collectors.
+
+## Where the record lives
+
+Each agent is one JSON file at:
+
+```
+~/.local/state/omarchy/agents/usage/<id>.json
+```
+
+(`~/.local/state` is actually `$XDG_STATE_HOME`, defaulting to
+`~/.local/state` when that variable is unset.)
+
+`<id>` is your agent's id — a short, stable, filename-safe string (letters,
+digits, `-`, `_`; 64 characters max). It must match the record's own `id`
+field (see below) and is also the key used to look up an optional icon (see
+"Icons" below). Once picked, don't change it — it's how synced snapshots
+from other machines and any external tooling key on your agent.
+
+Nothing needs to register this id anywhere. The widget's own updater,
+`omarchy-agent-usage-update`, scans this directory on every refresh and
+picks up every `*.json` file that's there, regardless of who wrote it or
+when. A file that appears mid-session shows up at the panel's next refresh;
+nothing polls waiting for it.
+
+Practical constraints on the file itself, enforced by the panel before it
+ever reads content:
+
+- The directory listing is capped at 500 files.
+- Any file at or above 1 MiB is skipped entirely (excluded before the panel
+  even opens it).
+- The read itself is bounded to 1 MiB; content past that is discarded and
+  the record is treated as unusable for that refresh.
+
+Write the file atomically (temp file + rename) so the panel never reads a
+half-written record. It's fine — expected, even — for the file to be
+rewritten wholesale on every collector run; the panel always reads the
+current file from disk rather than watching it for incremental changes.
+
+## Top-level shape
+
+All fields except `id` are optional in the sense that the panel tolerates
+their absence and falls back to sane defaults (empty/zero/hidden). But a
+record that omits everything renders nothing useful, so "optional" here
+means "your collector can validly leave this out when it has nothing to
+report for it right now" — not "no one should bother."
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | string | **yes** | Stable agent id. Must match the filename (`<id>.json`) and use only `[A-Za-z0-9_-]`, 64 chars max. Anything outside that charset gets sanitized/truncated by the panel, so use a clean id from the start. |
+| `name` | string | no | Display name shown in the hero and the subscription-switch chips (e.g. `"Claude Code"`). Falls back to `id` when absent. Max 80 chars (longer values are truncated). |
+| `schemaVersion` | integer | no | Present for forward-compatibility; today's value is `1`. The panel doesn't currently branch on it, but set it so a future breaking change to this contract can. |
+| `updatedAt` | string (ISO-8601) | no | When the collector last ran. Not currently rendered directly, but useful for your own debugging and for anything reading these files besides the panel. |
+| `ready` | boolean | no | `true` once the collector has produced *some* real signal (either local stats or a working limits/balance probe). Used when merging synced snapshots from other machines; a record with `ready: false` (or absent) contributes nothing to the merged "device is reporting" signal until it flips true. |
+| `hasLocalStats` | boolean | no, defaults to `true` | Whether this collector reports local prompt/session/token stats at all (as opposed to a pure remote billing view). Anything other than `false` reads as `true`. |
+| `hasPromptStats` | boolean | no, defaults to `true` | Whether prompt/session counts are meaningful for this agent. Set this to `false` when your data source only ever reports tokens (e.g. a billing API with no concept of a "prompt") — the panel then omits "N prompts · M sessions" from the today tooltip instead of showing a misleading `0`. |
+| `scope` | string: `"device"` \| `"account"` | no, defaults to `"device"` | Whether the numbers below are local-machine stats (`"device"`, the default — summed across synced devices) or an account-global truth every machine reports identically (`"account"` — merged by taking the widest value instead of summing, so the same account synced from two machines isn't double-counted). Use `"account"` for anything backed by a billing/usage API rather than local transcripts. |
+| `tierLabel` | string | no | The plan/tier name shown in the hero line (e.g. `"Max 20x"`, `"Pro"`, `"Prepaid"`). Max 60 chars. |
+| `usageStatusText` | string | no | See "Error states" below. When set, this text replaces the plan line in the hero and marks the record as having something to say about a problem. Max 200 chars. |
+| `authHelpText` | string | no | See "Error states" below. Longer explanatory text shown in a status card beneath the hero. Max 300 chars. |
+| `retryAdvised` | boolean | no | Set this to `true` when your collector failed to reach its remote endpoint for transport reasons (DNS/network down, not a real HTTP error) rather than an auth problem. The panel schedules one retry ~30s later instead of waiting out the full refresh interval, and only for agents that set this flag — one provider's outage doesn't put every other collector on a fast retry loop. |
+| `limits` | array of limit windows | no | Rate-limit allowances (session/weekly/model-scoped/etc). See "Limits" below. Mutually meaningful alongside or instead of `balance` — an agent can report neither, either, or (unusually) both. |
+| `balance` | object | no | A prepaid credit ledger, for agents billed by consumption rather than a rate-limit window. See "Balance" below. |
+| `todayPrompts` | integer | no | Number of prompts sent today (local time). Leave at `0`/omit when `hasPromptStats` is `false`. |
+| `todaySessions` | integer | no | Number of distinct sessions today. |
+| `todayTotalTokens` | integer | no | Total tokens (input + output + cache, however your provider buckets them) consumed today. |
+| `todayTokensByModel` | object: `{ "<modelId>": integer }` | no | Today's token total per model id — a flat number per model, **not** the same shape as `modelUsage` (see below). Capped at 100 distinct model ids; extra ones are dropped. |
+| `recentDays` | array of `{ "date": "YYYY-MM-DD", "messageCount": integer }` | no | One entry per day, meant to cover the trailing week (7 entries), oldest first, ending on today. Despite the field's name, `messageCount` is a **token total for that day**, not a count of messages — this is a legacy name kept for compatibility with older snapshots and must not be reinterpreted. Capped at 31 entries. |
+| `totalPrompts` | integer | no | All-time (or as-far-back-as-your-source-goes) prompt count. |
+| `totalSessions` | integer | no | All-time session count. |
+| `activeDays` | integer | no | Count of distinct days with any activity. |
+| `activeDates` | array of `"YYYY-MM-DD"` strings | no | The actual set of active dates, used (when present) to union activity across synced devices rather than trusting each device's own `activeDays` count. Capped at 400 entries. |
+| `modelUsage` | object: `{ "<modelId>": TokenBucket }` | no | All-time (or as-far-back-as-your-source-goes) token usage per model, broken into the four-field bucket described below. Capped at 100 distinct model ids. |
+
+### TokenBucket shape (used by `modelUsage`)
+
+```json
+{
+  "inputTokens": 0,
+  "outputTokens": 0,
+  "cacheReadInputTokens": 0,
+  "cacheCreationInputTokens": 0
+}
+```
+
+All four fields are integers, all default to `0` when a source doesn't
+distinguish them. If your provider doesn't have a cache-token concept at
+all, just report `0` for both cache fields — don't omit them, since the
+panel reads them by name for the input/output/cache breakdown shown on
+hover.
+
+### Limit window shape (used by `limits`)
+
+```json
+{
+  "label": "Session (5-hour)",
+  "title": "Session",
+  "percent": 0.42,
+  "resetsAt": "2026-08-23T18:00:00+00:00"
+}
+```
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `label` | string | recommended | Free-text description of the window, e.g. `"Session (5-hour)"`, `"Weekly (7-day)"`, `"30m window"`. Used to infer `title` when `title` is absent, by looking for words like "week"/"7-day"/"month"/"30-day"/"session". Max 80 chars. |
+| `title` | string | no | Explicit, already-resolved window name (`"Session"`, `"Weekly"`, `"Monthly"`, or a model name like `"Opus 5 Weekly"` for a model-scoped limit). **Prefer setting this explicitly** — label-sniffing breaks on a label like `"Opus 5 (1M context)"`, where `"1M"` gets misread as a one-minute window. If your allowance is scoped to a specific model, title it `"<model display name> <Window>"` so it reads apart from the account-wide windows. Max 80 chars. |
+| `percent` | number, `0.0`-`1.0` | **yes** | Fraction of the allowance used, already normalized to `0.0`-`1.0` (not `0`-`100`). A negative value or a missing field causes the panel to drop that limit entry entirely rather than show a nonsensical number — so omit an entry you can't compute rather than sending a placeholder. |
+| `resetsAt` | string (ISO-8601, with timezone) | no | When the window resets. Used to render "Resets in 3h 12m" and, on the next run, to decide whether a cached percentage is still valid (a window whose `resetsAt` has already passed is treated as stale and dropped rather than shown as a leftover reading). Omit or leave empty when unknown — the panel then just doesn't show a countdown. |
+
+Up to 20 limit entries per record are kept; extras are dropped. The panel
+picks the highest-`percent` entry as the "binding" one for the bar's meter
+and the alarm state, and separately looks for one titled exactly `"Session"`
+to pair with one titled exactly `"Weekly"` as a secondary tick on the same
+meter — so if your agent has a genuine session+weekly pair, title them
+precisely `"Session"` and `"Weekly"` to get that treatment; anything else
+(monthly-only, model-scoped-only, credit-only) just renders as its own row
+with no special pairing.
+
+### Balance shape (used by `balance`)
+
+```json
+{
+  "remaining": 14.32,
+  "funded": 20.0,
+  "spent": 5.68,
+  "currency": "USD",
+  "estimated": true
+}
+```
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `remaining` | number, ≥ 0 | **yes** (to make the object count at all) | Remaining credit. A missing or negative value makes the panel treat the whole `balance` object as absent. |
+| `funded` | number | no, defaults to `0` | Total credit funded/purchased. When `> 0`, the panel renders a fuel-gauge meter (draining toward empty, the opposite direction from a limit meter) and a "spent of funded" detail line. When `0`/absent, the panel still shows the raw `remaining` figure with no meter. |
+| `spent` | number | no, defaults to `0` | Amount spent so far. Only shown when `funded > 0`. |
+| `currency` | string (ISO 4217-ish) | no, defaults to `"USD"` | `"USD"`/`"EUR"`/`"GBP"` get a symbol prefix (`$`/`€`/`£`); anything else is shown as `"<CODE> "` followed by the number. Max 10 chars. |
+| `estimated` | boolean | no, defaults to `false` | Set this to `true` when `remaining`/`spent` are computed/estimated rather than read from an authoritative ledger endpoint (see the README's Fireworks section for a worked example of when and why to set this). The panel appends "· estimated" to the detail line. |
+
+A prepaid/credit-based agent (no rate-limit windows at all) reports
+`balance` and omits `limits`. Reporting both is unusual but not forbidden —
+nothing stops an agent from having both a rate limit and a running credit
+balance.
+
+## Error states
+
+Two conventions exist today, matching what Claude's and Codex's own
+collectors do — reuse them exactly so the panel shows the right message
+rather than a generic one:
+
+- **Auth missing / expired.** Set `usageStatusText` to something short like
+  `"Waiting for auth"` or `"Sign-in expired"`, and `authHelpText` to a
+  longer, actionable sentence (e.g. `"Run `your-cli auth login` to restore
+  authoritative usage."`). Leave `limits`/`balance` empty, or — better —
+  keep serving the last known-good values you have cached, since a window
+  that hasn't reset yet is still a true reading. Do **not** set
+  `retryAdvised` for this case: an auth problem doesn't resolve itself on a
+  30-second timer the way a network hiccup might, so the panel just leaves
+  it to the normal refresh interval (and to the user fixing their
+  credentials).
+- **Endpoint unreachable (transport failure).** Same two text fields
+  (`usageStatusText` like `"<Agent> limits unavailable"`, `authHelpText`
+  with the underlying reason), but this time also set `"retryAdvised":
+  true`. This is specifically for "no route to the server at all" failures
+  — DNS failure, connection refused, timeout with no response — as opposed
+  to the server answering with a real HTTP error status. The panel honors
+  this by re-running your collector's limits probe roughly 30 seconds
+  later instead of waiting for the next full refresh cycle, which matters
+  most right after login before the network is fully up. A real HTTP error
+  response (429 rate-limited, 5xx, etc.) is *not* a transport failure in
+  this sense — report it via `usageStatusText`/`authHelpText` without
+  `retryAdvised`, since hammering a server that answered with "no" every
+  30 seconds is the wrong response.
+
+In both cases, keep reporting whatever local stats (`todayPrompts`,
+`recentDays`, `modelUsage`, etc.) you can still compute independent of the
+failing remote call — an auth or network problem with the limits endpoint
+shouldn't blank out numbers that came from local transcripts or a separate,
+working code path.
+
+When everything is fine, leave `usageStatusText` and `authHelpText` as
+empty strings (or omit them) — a non-empty `usageStatusText` is exactly
+what tells the panel to show a problem state instead of the normal plan
+line.
+
+## Icons
+
+An icon is optional; without one the panel falls back to its own generic
+bar glyph. To ship one:
+
+- `assets/<id>.svg` — the default mark, used on dark/normal panel surfaces.
+- `assets/<id>-light.svg` — optional twin for a mark that needs a
+  different (typically dark-on-light) rendering when the active surface is
+  light. Ship this only if your mark doesn't already work on both — a
+  mark using a fixed brand color that reads fine on any background (like
+  Claude's brand orange) doesn't need one.
+
+`<id>` here is exactly the same id as the record's `id` field and the
+`<id>.json` filename — there is no separate registration step. The panel
+resolves `assets/<id>-light.svg` first when the current surface is light
+(by relative luminance ≥ 0.5), falling back to `assets/<id>.svg`, falling
+back again to a plain glyph if neither loads. `<id>` is re-validated against
+`[A-Za-z0-9_-]{1,64}` at the point these paths get built, since it's
+concatenated directly into a resource URL — so don't rely on any character
+outside that set surviving into an icon path even if you used it in the
+record's `id`.
+
+These asset files live in *this repository* (`assets/`), not with your
+collector — since a third-party collector, by design, never touches this
+repo, shipping a new icon here requires a small contribution (see the
+planned icon registry/`CONTRIBUTING.md` work) rather than being something
+your collector can drop in on its own. Until then, an agent without a
+shipped icon simply uses the fallback glyph, which is a fully supported,
+unremarkable state.
+
+## Settings note (what's *not* part of this contract)
+
+Everything in `manifest.json`'s `providers.<id>` settings block —
+`enabled`, and (as they land) per-provider flags like `showInBar` or
+`primary` — is configuration the *user* sets for the widget, not something
+a collector writes into its own record. As of this writing, none of the
+in-flight display/settings work (per-provider bar visibility, bar display
+modes, warning/critical color thresholds, the expandable panel view, or the
+in-panel settings editor) changes what a collector is expected to report —
+they all operate purely on the record shape documented above. If a future
+change does add a collector-facing field for one of those, it'll be added
+to the tables above rather than requiring a second contract document.
+
+## Minimal valid example
+
+The smallest record that renders something sane — a name, no limits or
+balance yet, some tokens for today:
+
+```json
+{
+  "id": "example",
+  "name": "Example Agent",
+  "ready": true,
+  "todayTotalTokens": 1234,
+  "todayTokensByModel": { "example-model-v1": 1234 }
+}
+```
+
+This shows up in the panel with the hero mark/name, a "Subscription" plan
+line (the generic fallback for a missing `tierLabel`), no limits/balance
+section, and a "Tokens by day"/"Tokens by model" section limited to
+whatever `recentDays`/`modelUsage` you also provide (both omitted here, so
+those sections simply don't render).
+
+## Complete example
+
+Exercises every field above, including a model-scoped limit, a live
+(non-estimated) balance shown alongside limits (unusual, but valid), the
+full week of token history, and a synced-friendly `activeDates` list:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "example",
+  "name": "Example Agent",
+  "updatedAt": "2026-08-23T09:00:00+00:00",
+  "ready": true,
+  "hasLocalStats": true,
+  "hasPromptStats": true,
+  "scope": "device",
+  "tierLabel": "Pro 20x",
+  "usageStatusText": "",
+  "authHelpText": "",
+  "limits": [
+    {
+      "label": "Session (5-hour)",
+      "title": "Session",
+      "percent": 0.42,
+      "resetsAt": "2026-08-23T18:00:00+00:00"
+    },
+    {
+      "label": "Weekly (7-day)",
+      "title": "Weekly",
+      "percent": 0.61,
+      "resetsAt": "2026-08-27T00:00:00+00:00"
+    },
+    {
+      "label": "Opus 5 (1M context) Weekly",
+      "title": "Opus 5 Weekly",
+      "percent": 0.18,
+      "resetsAt": "2026-08-27T00:00:00+00:00"
+    }
+  ],
+  "balance": {
+    "remaining": 14.32,
+    "funded": 20.0,
+    "spent": 5.68,
+    "currency": "USD",
+    "estimated": false
+  },
+  "todayPrompts": 37,
+  "todaySessions": 4,
+  "todayTotalTokens": 128000,
+  "todayTokensByModel": {
+    "example-model-v1": 96000,
+    "example-model-v1-mini": 32000
+  },
+  "recentDays": [
+    { "date": "2026-08-17", "messageCount": 210000 },
+    { "date": "2026-08-18", "messageCount": 185000 },
+    { "date": "2026-08-19", "messageCount": 0 },
+    { "date": "2026-08-20", "messageCount": 240000 },
+    { "date": "2026-08-21", "messageCount": 199000 },
+    { "date": "2026-08-22", "messageCount": 260000 },
+    { "date": "2026-08-23", "messageCount": 128000 }
+  ],
+  "totalPrompts": 5210,
+  "totalSessions": 340,
+  "activeDays": 58,
+  "activeDates": [
+    "2026-06-01", "2026-06-02", "2026-08-21", "2026-08-22", "2026-08-23"
+  ],
+  "modelUsage": {
+    "example-model-v1": {
+      "inputTokens": 4200000,
+      "outputTokens": 1800000,
+      "cacheReadInputTokens": 900000,
+      "cacheCreationInputTokens": 150000
+    },
+    "example-model-v1-mini": {
+      "inputTokens": 1100000,
+      "outputTokens": 400000,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0
+    }
+  }
+}
+```
+
+An auth-missing variant of the same agent (limits section falls back to
+whatever was last cached, or empty if there's nothing cached yet):
+
+```json
+{
+  "id": "example",
+  "name": "Example Agent",
+  "ready": false,
+  "hasLocalStats": true,
+  "tierLabel": "Pro 20x",
+  "usageStatusText": "Waiting for auth",
+  "authHelpText": "Run `example-cli auth login` to restore authoritative usage.",
+  "limits": [],
+  "todayTotalTokens": 0
+}
+```
+
+A transport-failure variant (network unreachable, worth a fast retry):
+
+```json
+{
+  "id": "example",
+  "name": "Example Agent",
+  "ready": true,
+  "hasLocalStats": true,
+  "tierLabel": "Pro 20x",
+  "usageStatusText": "Example limits unavailable",
+  "authHelpText": "Couldn't reach Example's usage endpoint. Retrying shortly. Local stats are still shown.",
+  "retryAdvised": true,
+  "limits": [],
+  "todayTotalTokens": 128000
+}
+```
