@@ -2,24 +2,30 @@
 
 ## Repo boundary — read this first
 
-**This repo is QML + `manifest.json` + assets only.** It is the bar
-widget/panel itself, nothing else.
+The widget stays a QML plugin, but this repository now also owns the small,
+dependency-free **supported companion collectors package** in
+[`collectors/`](collectors/). That is a deliberate change from the original
+“collectors never live here” boundary: provider coverage is a product
+requirement, and a contract by itself did not give users working support.
+The package is installable separately, writes the same compliant records to
+`~/.local/state/omarchy/agents/usage/<id>.json`, and does not make the QML
+runtime depend on Python.
 
-Collectors — the scripts that actually talk to a provider's API or read its
-local transcripts and write a compliant JSON record to
-`~/.local/state/omarchy/agents/usage/<id>.json` — do **not** live here. They
-ship as their own packages, named `omarchy-agent-usage-<id>` (Omarchy's own
-`omarchy-agent-usage-claude` and `omarchy-agent-usage-codex` are the
-existing examples, at `/usr/share/omarchy/bin/`, not part of this repo).
-This split is deliberate: it's what lets a third party add support for a
-new provider without ever touching this repo. See
-[`docs/collector-contract.md`](docs/collector-contract.md) for the full
-record spec a collector needs to satisfy.
+Omarchy's own `omarchy-agent-usage-claude` and
+`omarchy-agent-usage-codex` remain external system collectors at
+`/usr/share/omarchy/bin/`. Third parties may still distribute an independent
+`omarchy-agent-usage-<id>` collector; the panel discovers it without a code
+change. See [`docs/collector-contract.md`](docs/collector-contract.md) for
+the complete record spec and [`collectors/README.md`](collectors/README.md)
+for the package's credential, installation, and error-state conventions.
 
-**If your PR adds a bash/Python/etc. script that fetches usage data from a
-provider, it belongs in a separate `omarchy-agent-usage-<id>` repo, not
-here.** Please open it there (or as a new repo) instead — a collector PR
-opened against this repo will be redirected.
+New provider collectors may belong here when they are a maintainable,
+documented integration that produces a useful authoritative record (usage,
+limit, or balance), includes tests for parsing/error states, and never logs a
+credential. Do not add a key-presence-only pseudo-collector: it creates a
+convincing but meaningless zero meter. Keep optional dependencies out unless
+there is a strong provider reason, and link the authoritative API reference
+in its module and documentation.
 
 What *does* belong here:
 
@@ -72,12 +78,10 @@ update it as tooling below lands rather than leaving it aspirational.
       updated.
 - [ ] If you added or changed a collector-facing field, it doesn't
       contradict `docs/collector-contract.md`.
-- [ ] Automated tests pass — **not yet applicable**: this repo has no test
-      suite yet. Update this line to require `npm test` (or equivalent)
-      once that lands.
-- [ ] `qmllint`/`shellcheck` clean — **not yet applicable**: there is no CI
-      or lint tooling wired up yet. Update this line to require a clean
-      lint run once that lands.
+- [ ] `npm test` passes; collector changes also pass
+      `python -m unittest discover -s collectors/tests -v`.
+- [ ] QML changes have a clean Qt 6 `qmllint` run; shell changes have a clean
+      `shellcheck` run when it is available.
 
 ## Releasing
 

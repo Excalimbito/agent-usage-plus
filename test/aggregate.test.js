@@ -161,6 +161,12 @@ test("mergeProviderDisplay: a Codex endpoint-down record surfaces its own help t
   assert.match(display.authHelpText, /app-server RPC/)
 })
 
+test("providerHasData: a first-run auth or endpoint state remains visible", () => {
+  assert.equal(Aggregate.providerHasData({ ready: false, usageStatusText: "Waiting for API key" }), true)
+  assert.equal(Aggregate.providerHasData({ ready: false, usageStatusText: "" }), false)
+  assert.equal(Aggregate.providerHasData({ ready: true }), true)
+})
+
 // ----------------------------------------------------------- sync snapshots
 
 function loadTwoDeviceSnapshot() {
