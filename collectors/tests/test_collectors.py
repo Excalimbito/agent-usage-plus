@@ -6,6 +6,9 @@ from unittest.mock import patch
 
 from agent_usage_collectors.common import base_record, classify_failure
 from agent_usage_collectors.deepseek import record_from_payload as deepseek_record
+from agent_usage_collectors.cursor import record_from_payload as cursor_record
+from agent_usage_collectors.gemini import record_from_payload as gemini_record
+from agent_usage_collectors.kimi import record_from_payload as kimi_record
 from agent_usage_collectors.openrouter import record_from_payload as openrouter_record
 from agent_usage_collectors.transcript_cost import decorate, normalise_today_buckets
 from agent_usage_collectors.xai import record_from_payload as xai_record
@@ -73,6 +76,50 @@ class CollectorParsingTests(unittest.TestCase):
         from agent_usage_collectors.xai import collect as collect_xai
         record = collect_xai()
         self.assertEqual(record["usageStatusText"], "Management key rejected")
+
+    def test_kimi_maps_weekly_and_rolling_windows(self) -> None:
+        record = kimi_record({
+            "user": {"membership": {"level": "LEVEL_INTERMEDIATE"}},
+            "usage": {"limit": "100", "remaining": "74", "resetTime": "2026-08-25T17:32:50Z"},
+            "limits": [{
+                "window": {"duration": 300, "timeUnit": "TIME_UNIT_MINUTE"},
+                "detail": {"limit": 100, "used": 15, "resetTime": "2026-08-23T12:32:50Z"},
+            }],
+        })
+        self.assertEqual(record["tierLabel"], "Intermediate")
+        self.assertEqual(record["limits"][0]["title"], "Session")
+        self.assertEqual(record["limits"][0]["percent"], 0.15)
+        self.assertEqual(record["limits"][1]["percent"], 0.26)
+
+    def test_gemini_maps_current_cli_bucket_shape(self) -> None:
+        record = gemini_record(
+            {"currentTier": {"name": "Google AI Pro"}},
+            {"buckets": [
+                {"modelId": "gemini-3-pro", "remainingFraction": 0.4, "resetTime": "2026-08-24T00:00:00Z"},
+                {"modelId": "gemini-3-flash", "remainingFraction": 0.9},
+            ]},
+        )
+        self.assertEqual(record["tierLabel"], "Google AI Pro")
+        self.assertEqual(record["limits"][0]["title"], "Pro")
+        self.assertEqual(record["limits"][0]["percent"], 0.6)
+        self.assertEqual(record["limits"][1]["title"], "Flash")
+
+    def test_cursor_maps_dashboard_subscription_pools(self) -> None:
+        record = cursor_record({
+            "membershipType": "ultra",
+            "billingCycleEnd": "2026-09-01T00:00:00Z",
+            "isUnlimited": False,
+            "individualUsage": {"plan": {"autoPercentUsed": 98.1, "apiPercentUsed": 100, "totalPercentUsed": 98.5}},
+        })
+        self.assertEqual(record["tierLabel"], "Ultra")
+        self.assertEqual([limit["title"] for limit in record["limits"]], ["Cursor Models", "Other Models", "Included total"])
+        self.assertEqual(record["limits"][0]["percent"], 0.981)
+
+    def test_cursor_unlimited_is_a_real_ready_state_without_fake_meter(self) -> None:
+        record = cursor_record({"membershipType": "business", "billingCycleEnd": "2026-09-01T00:00:00Z", "isUnlimited": True})
+        self.assertTrue(record["ready"])
+        self.assertEqual(record["limits"], [])
+        self.assertIn("unlimited", record["tierLabel"])
 
     def test_auth_and_transport_states_have_correct_retry_behavior(self) -> None:
         error = HTTPError("https://x", 401, "no", {}, None)

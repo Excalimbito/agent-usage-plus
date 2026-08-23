@@ -39,8 +39,8 @@ def base_record(agent_id: str, name: str, tier: str) -> dict[str, Any]:
     }
 
 
-def auth_missing(record: dict[str, Any], help_text: str) -> dict[str, Any]:
-    record.update({"ready": False, "usageStatusText": "Waiting for API key", "authHelpText": help_text})
+def auth_missing(record: dict[str, Any], help_text: str, *, status: str = "Waiting for API key") -> dict[str, Any]:
+    record.update({"ready": False, "usageStatusText": status, "authHelpText": help_text})
     return record
 
 
@@ -55,16 +55,33 @@ def get_json(
     url: str,
     api_key: str,
     timeout_seconds: float = 10,
-    *,
-    method: str = "GET",
-    payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Request a documented JSON endpoint without ever logging the credential."""
-    body = json.dumps(payload).encode("utf-8") if payload is not None else None
-    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json", "User-Agent": USER_AGENT}
+    return request_json(url, headers={"Authorization": f"Bearer {api_key}"}, timeout_seconds=timeout_seconds)
+
+
+def request_json(
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    body: dict[str, Any] | None = None,
+    timeout_seconds: float = 10,
+) -> dict[str, Any]:
+    """Make a small JSON request without ever including an upstream body in a record.
+
+    Provider endpoints differ in their auth scheme (API key, OAuth bearer, or
+    a dashboard session cookie).  Keeping the transport here makes their
+    collectors equally strict about bounded JSON-only responses while leaving
+    provider modules responsible for their public record shape.
+    """
+    request_headers = {"Accept": "application/json", "User-Agent": USER_AGENT}
+    request_headers.update(headers or {})
+    payload = None
+    method = "GET"
     if body is not None:
-        headers["Content-Type"] = "application/json"
-    request = Request(url, data=body, method=method, headers=headers)
+        payload = json.dumps(body, separators=(",", ":")).encode("utf-8")
+        request_headers["Content-Type"] = "application/json"
+        method = "POST"
+    request = Request(url, data=payload, method=method, headers=request_headers)
     with urlopen(request, timeout=timeout_seconds) as response:
         payload = json.loads(response.read().decode("utf-8"))
     if not isinstance(payload, dict):
