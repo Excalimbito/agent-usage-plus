@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+"""Run bundled collectors and atomically publish their records for the panel."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+import sys
+sys.path.insert(0, str(ROOT))
+
+from agent_usage_collectors.deepseek import collect as collect_deepseek  # noqa: E402
+from agent_usage_collectors.openrouter import collect as collect_openrouter  # noqa: E402
+
+COLLECTORS = {"openrouter": collect_openrouter, "deepseek": collect_deepseek}
+
+
+def usage_dir() -> Path:
+    return Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")) / "omarchy" / "agents" / "usage"
+
+
+def publish(agent_id: str, record: dict) -> None:
+    destination = usage_dir()
+    destination.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=destination, prefix=f".{agent_id}.", delete=False) as handle:
+        json.dump(record, handle, separators=(",", ":"), sort_keys=True)
+        handle.write("\n")
+        temporary = Path(handle.name)
+    temporary.chmod(0o600)
+    temporary.replace(destination / f"{agent_id}.json")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Publish Agent Usage Plus API-provider records")
+    parser.add_argument("command", choices=["update"], nargs="?", default="update")
+    parser.add_argument("providers", metavar="provider", choices=sorted(COLLECTORS), nargs="*")
+    args = parser.parse_args()
+    for agent_id in args.providers or sorted(COLLECTORS):
+        publish(agent_id, COLLECTORS[agent_id]())
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

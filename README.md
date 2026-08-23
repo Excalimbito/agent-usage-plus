@@ -6,6 +6,8 @@
 
 A fork of Omarchy's built-in `omarchy.agents` bar widget (Omarchy 4.0.0-1,
 plugin version 1.0.0), published standalone so it can evolve independently.
+It also ships an optional, separately installed companion collectors package
+for a small set of API providers; the bar itself remains QML-only.
 
 The main thing this fork adds — a live meter and percentage per subscription
 side by side in the bar, instead of the stock version's single icon. Click
@@ -153,17 +155,19 @@ whole widget with
 ## Data
 
 Each agent is one JSON record in `~/.local/state/omarchy/agents/usage/`,
-written by `omarchy-agent-usage-update`. That command runs one
+usually written by `omarchy-agent-usage-update`. That command runs one
 `omarchy-agent-usage-<agent>` collector per agent; the widget invokes it
 on its refresh timer and whenever you ask for a refresh, and picks up any
 record that lands in the directory regardless of who wrote it.
 
-Adding an agent therefore never touches this plugin: ship a collector that
-prints one JSON record — id, plan/limits or a prepaid balance, today's and
-this week's token usage, model breakdown, and the auth-missing /
-endpoint-down conventions the panel knows how to show — and the panel gains
-a tab, no code change here required. The full field-by-field spec, with
-minimal and complete examples, lives in
+Adding an agent needs a collector that prints one JSON record — id,
+plan/limits or a prepaid balance, token usage where an authoritative source
+exists, model breakdown, and the auth-missing / endpoint-down conventions
+the panel knows how to show. The supported package in
+[`collectors/`](collectors/) currently adds OpenRouter and DeepSeek; it has
+an opt-in user timer and an optional Omarchy-updater integration without
+changing the plugin runtime. The full field-by-field spec, with minimal and
+complete examples, lives in
 [`docs/collector-contract.md`](docs/collector-contract.md); see Omarchy's
 own `omarchy-agent-usage-claude` and `omarchy-agent-usage-codex` (at
 `/usr/share/omarchy/bin/`, not part of this repo) for two real
@@ -182,6 +186,8 @@ don't live here), how to propose a new icon, and the PR checklist.
 | `claude` | Anthropic's OAuth usage endpoint (5-hour session + 7-day weekly) | `~/.claude/projects` transcripts, opencode sessions on an Anthropic provider, plus `stats-cache.json` and `history.jsonl` as fallback |
 | `codex` | The Codex app-server RPC | native Codex CLI session files (plus pi and opencode sessions) |
 | `fireworks` | Estimated prepaid balance: configured funding minus rated account costs | Fireworks billing API, grouped by day and model for the last 30 days |
+| `openrouter` *(companion package)* | Current API key's configured budget and remaining spend | OpenRouter current-key metadata endpoint |
+| `deepseek` *(companion package)* | Current account API-credit ledger | DeepSeek user-balance endpoint |
 
 Claude limits need a signed-in CLI; without credentials the panel says so and
 falls back to local stats only. A non-default Claude directory is honored via

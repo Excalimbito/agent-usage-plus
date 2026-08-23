@@ -540,7 +540,12 @@ function providerHasData(p) {
   return numberValue(p.totalPrompts) > 0 || numberValue(p.totalSessions) > 0
     || numberValue(p.activeDays) > 0 || numberValue(p.todayPrompts) > 0
     || numberValue(p.todaySessions) > 0 || (p.limits && p.limits.length > 0)
-    || !!p.balance
+    || !!p.balance || !!p.cost || p.ready === true
+    // An auth or endpoint problem is itself useful state. In particular, a
+    // newly installed API-backed collector has no historical local stats to
+    // keep it visible, so suppressing this made the documented error record
+    // a silent gap in the panel.
+    || String(p.usageStatusText || "").trim().length > 0
 }
 
 if (typeof module !== "undefined" && module.exports) {
