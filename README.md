@@ -30,10 +30,13 @@ Changes from the built-in version:
   by model" table across every enabled subscription at once, on top of the
   single-subscription view the chip switcher already gives you. It's
   session-only — the panel always reopens collapsed.
-- The expanded view also has a SETTINGS section: per-provider
+- A separate gear button opens a SETTINGS section: per-provider
   enabled/show-in-bar toggles, and a refresh-interval stepper and
   warn/critical threshold sliders, all writing through `omarchy bar set` so
   the CLI and the panel never disagree about how a setting gets persisted.
+  Settings and the expanded data view are mutually exclusive — opening one
+  closes the other, so the panel never has to grow tall enough to show both
+  at once.
 
 To pull in upstream fixes later, diff this against
 `/usr/share/omarchy/shell/plugins/agents/` after an `omarchy update` and
@@ -189,11 +192,14 @@ only adds the meter and the spent-of-funded line under the real figure.
 ## Interactions
 
 - Bar icon: left = panel, right = launch agent, middle = next subscription.
+  With every provider's `showInBar` off (or nothing enabled yet), the icon
+  falls back to the module's own glyph instead of an empty-looking gap, so
+  it stays reachable.
 - Panel: `h`/`l` switch subscription, `j`/`k` scroll, `r` or Enter refresh,
   `e` or the chevron button next to the provider name expands/collapses the
-  combined "tokens by model" section (and the SETTINGS section below it) for
-  every enabled subscription, Tab moves to the neighboring bar panel, Esc
-  closes.
+  combined "tokens by model" section for every enabled subscription, the
+  gear button next to it opens/closes the SETTINGS section (opening one
+  closes the other), Tab moves to the neighboring bar panel, Esc closes.
 - IPC: `omarchy-shell io.github.viganogabriele.agent-usage-plus <open|close|toggle|refresh|next>`.
 
 ## Settings
@@ -201,9 +207,11 @@ only adds the meter and the spent-of-funded line under the real figure.
 Settings live in the widget's entry in `~/.config/omarchy/shell.json`.
 `refreshIntervalSec`, `warnThresholdPct`, `criticalThresholdPct`, and each
 provider's `enabled`/`showInBar` are also editable from inside the panel
-itself: expand it (chevron button or `e`, same toggle issue 07 added) and a
-SETTINGS section appears at the bottom with a toggle pair per subscription
-and a stepper/sliders for the rest. Every control there shells out to the
+itself: click the gear button next to the provider name and a SETTINGS
+section replaces the expanded data view with a toggle pair per subscription
+and a stepper/sliders for the rest — a disabled subscription's "show in bar"
+toggle greys out, since it has no effect while the subscription itself is
+off. Every control there shells out to the
 same `omarchy bar set` command described below — there's no separate
 shell.json-writing code path — so a change made from the panel takes effect
 immediately (no restart) and survives a shell restart exactly like a change

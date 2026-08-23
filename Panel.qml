@@ -48,8 +48,20 @@ Panel {
   // Session-only: never written to shell.json, and always false the moment
   // the panel opens (see onOpenedChanged below) — nobody should be surprised
   // by a bigger popup than the one they closed last time.
+  //
+  // `expanded` (cross-provider data) and `settingsOpen` (the settings form)
+  // are mutually exclusive so the panel never has to grow to fit both at
+  // once — toggling one closes the other rather than stacking their content.
   property bool expanded: false
-  function toggleExpanded() { root.expanded = !root.expanded }
+  property bool settingsOpen: false
+  function toggleExpanded() {
+    root.expanded = !root.expanded
+    if (root.expanded) root.settingsOpen = false
+  }
+  function toggleSettings() {
+    root.settingsOpen = !root.settingsOpen
+    if (root.settingsOpen) root.expanded = false
+  }
 
   // Countdowns and "updated" read this instead of Date.now() so the
   // panel keeps telling the truth while it sits open.
@@ -81,6 +93,19 @@ Panel {
   function providerSettingEnabled(id) {
     var providers = usage.settings && usage.settings.providers ? usage.settings.providers : {}
     return !providers[id] || providers[id].enabled !== false
+  }
+
+  // One line of plain-language context per shipped provider, so someone who
+  // has never touched (say) Fireworks can tell what it is from the settings
+  // list without leaving the panel. Unknown ids (a third-party collector)
+  // get no subtitle rather than a guessed-at description.
+  readonly property var providerDescriptions: ({
+    claude: "Anthropic's Claude Code CLI — subscription usage and limits.",
+    codex: "OpenAI's Codex CLI — subscription usage and limits.",
+    fireworks: "Fireworks AI — a separate, prepaid inference account, billed by the token."
+  })
+  function providerDescription(id) {
+    return root.providerDescriptions[id] || ""
   }
 
   function providerSettingShowInBar(id) {
@@ -422,11 +447,19 @@ Panel {
   // Nothing to report, nothing in the bar: Bar.qml collapses a slot whose item
   // is invisible, so the icon appears the moment the first scan finds usage and
   // stays away entirely on a machine that has never run either CLI.
+  //
+  // "Nothing to report" is judged against every *discovered* provider
+  // (`settingsProviders`), not just the enabled ones: a machine with real
+  // collectors that the user has since disabled everywhere still has a
+  // plugin to manage, and it must stay reachable — otherwise turning every
+  // provider off from the in-panel settings (issue 08) locks the settings
+  // themselves behind a bar icon that no longer exists. A machine that has
+  // never produced a single usage record still collapses out entirely.
   // Extra breathing room on both sides so this widget doesn't sit flush
   // against its bar neighbors the way a plain icon slot would.
   readonly property real outerPadding: Style.space(10)
 
-  visible: providers.length > 0
+  visible: providers.length > 0 || root.settingsProviders.length > 0
   implicitWidth: Math.max(button.implicitWidth, providersRow.implicitWidth) + outerPadding * 2
   implicitHeight: button.implicitHeight
 
@@ -439,6 +472,7 @@ Panel {
   onOpenedChanged: if (opened) {
     cursorActive = false
     expanded = false
+    settingsOpen = false
     nowMs = Date.now()
     if (panelFlick) panelFlick.contentY = 0
     usage.refreshLimits()
@@ -612,7 +646,15 @@ Panel {
     anchors.fill: parent
     bar: root.bar
     text: "󱚣"
-    labelVisible: false
+    // The per-provider meters in providersRow draw on top of this button
+    // and normally are the only visible content — but when every provider
+    // is enabled-but-hidden-from-bar (or the discovered set is enabled with
+    // nothing yet to report), providersRow's model is empty and, with the
+    // label suppressed, the slot would render as an invisible-but-clickable
+    // gap: present enough to keep the panel reachable (see `visible` above)
+    // but with no visual sign it's there. Fall back to this module's own
+    // glyph whenever there's no per-provider content to show instead.
+    labelVisible: root.barProviders.length === 0
     active: root.alarming
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.RightButton) root.launchAgent()
@@ -753,16 +795,33 @@ Panel {
             foreground: root.foreground
             fontFamily: root.fontFamily
 
-            // Expand/collapse the combined cross-provider section below —
-            // the only way to reach it besides the `e` key. Chevron points
-            // the direction the panel is about to grow/shrink.
+            // Two distinct, separately-labeled controls rather than one
+            // overloaded toggle: the gear opens the settings form (issue
+            // 08), the chevron reveals the cross-provider data section
+            // (issue 07). They're mutually exclusive (see toggleExpanded/
+            // toggleSettings) so opening one never leaves the other's
+            // content stacked underneath, taking up scroll height nobody
+            // asked to see.
             trailingControl: Component {
-              PanelActionButton {
-                iconText: root.expanded ? "󰅃" : "󰅀"
-                tooltipText: root.expanded ? "Collapse (e)" : "Expand (e)"
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-                onClicked: root.toggleExpanded()
+              Row {
+                spacing: Style.space(4)
+
+                PanelActionButton {
+                  iconText: "󰒓"
+                  tooltipText: root.settingsOpen ? "Close settings" : "Settings"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  onClicked: root.toggleSettings()
+                }
+
+                PanelActionButton {
+                  visible: !root.settingsOpen
+                  iconText: root.expanded ? "󰅃" : "󰅀"
+                  tooltipText: root.expanded ? "Hide model breakdown (e)" : "Show all-subscription model breakdown (e)"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  onClicked: root.toggleExpanded()
+                }
               }
             }
 
@@ -1091,18 +1150,20 @@ Panel {
           }
 
           // ---------- Settings: the same values `omarchy bar set` edits,
-          // editable here without a terminal (issue 08). Session-visible
-          // only under the same `expanded` flag as the cross-provider
-          // section above; the settings themselves are obviously not
-          // session-only — every control writes through to shell.json.
+          // editable here without a terminal (issue 08). Gated by its own
+          // `settingsOpen` flag (not `expanded`) so opening settings doesn't
+          // also force the cross-provider data section into view — the two
+          // are mutually exclusive, see toggleSettings(). The settings
+          // themselves are obviously not session-only — every control
+          // writes through to shell.json.
           PanelSeparator {
-            visible: root.expanded
+            visible: root.settingsOpen
             foreground: root.foreground
           }
 
           Column {
             id: settingsSection
-            visible: root.expanded
+            visible: root.settingsOpen
             width: parent.width
             spacing: Style.spacing.lg
 
@@ -1137,6 +1198,16 @@ Panel {
                     width: parent.width
                   }
 
+                  Text {
+                    text: root.providerDescription(providerSettingsRow.modelData.providerId)
+                    visible: text !== ""
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                  }
+
                   Row {
                     spacing: Style.spacing.xl
 
@@ -1161,8 +1232,16 @@ Panel {
                       }
                     }
 
+                    // Dimmed and non-interactive while the provider itself
+                    // is disabled: "show in bar" has no effect on a
+                    // provider that's off entirely, and leaving both
+                    // switches independently clickable read as two
+                    // contradictory settings instead of one depending on
+                    // the other.
                     Row {
                       spacing: Style.space(6)
+                      enabled: providerSettingsRow.modelData.enabled
+                      opacity: providerSettingsRow.modelData.enabled ? 1.0 : 0.45
 
                       ToggleSwitch {
                         id: showInBarSwitch
