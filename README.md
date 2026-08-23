@@ -132,7 +132,9 @@ own `omarchy-agent-usage-claude` and `omarchy-agent-usage-codex` (at
 `/usr/share/omarchy/bin/`, not part of this repo) for two real
 implementations. An `assets/<id>.svg` mark is optional — with an
 `assets/<id>-light.svg` twin if the mark needs a dark variant for light
-surfaces — and the bar glyph stands in when there is none.
+surfaces — and the bar glyph stands in when there is none. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the repo boundary (collectors
+don't live here), how to propose a new icon, and the PR checklist.
 
 | Collector | Limits | Local stats |
 |---|---|---|
