@@ -1099,6 +1099,20 @@ Panel {
             ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
           }
 
+          // A clipped horizontal row without a count looked exactly like the
+          // panel had discovered only its first three providers. Make the
+          // additional subscriptions explicit, while retaining the compact
+          // scrollable controls above instead of stacking a tall chip grid.
+          Text {
+            visible: root.providers.length > 3
+            width: parent.width
+            text: (root.providerIndex + 1) + " of " + root.providers.length + " subscriptions · swipe or h/l to browse"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            horizontalAlignment: Text.AlignRight
+          }
+
           // ---------- Status ----------
             BorderSurface {
               visible: !!root.provider && String(root.provider.usageStatusText || "") !== ""
