@@ -26,6 +26,10 @@ Changes from the built-in version:
   when a provider reports both windows (Claude does; Codex currently
   reports only a weekly window, so its bar already shows that number
   directly with nothing to tick).
+- The panel can expand (chevron button or `e`) to show a combined "tokens
+  by model" table across every enabled subscription at once, on top of the
+  single-subscription view the chip switcher already gives you. It's
+  session-only — the panel always reopens collapsed.
 
 To pull in upstream fixes later, diff this against
 `/usr/share/omarchy/shell/plugins/agents/` after an `omarchy update` and
@@ -182,7 +186,9 @@ only adds the meter and the spent-of-funded line under the real figure.
 
 - Bar icon: left = panel, right = launch agent, middle = next subscription.
 - Panel: `h`/`l` switch subscription, `j`/`k` scroll, `r` or Enter refresh,
-  Tab moves to the neighboring bar panel, Esc closes.
+  `e` or the chevron button next to the provider name expands/collapses the
+  combined "tokens by model" section for every enabled subscription, Tab
+  moves to the neighboring bar panel, Esc closes.
 - IPC: `omarchy-shell io.github.viganogabriele.agent-usage-plus <open|close|toggle|refresh|next>`.
 
 ## Settings

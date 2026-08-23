@@ -341,6 +341,33 @@ function buildLocalSnapshot(records, deviceId, isProviderEnabled) {
   }
 }
 
+// Combines the per-model token buckets of every given provider display
+// object into one map, keyed by model id — same shape as a single
+// provider's `modelUsage`, so any caller that already knows how to turn a
+// `modelUsage` map into display rows (Panel.qml's modelRows/modelUsageRows)
+// can reuse it unchanged. Built for the expanded panel view (issue #7),
+// which shows one "tokens by model" table across every enabled provider
+// instead of just the currently selected chip.
+//
+// Providers report disjoint model ids in practice (each vendor names its
+// own models), so summing unconditionally is safe; on the rare case two
+// providers happen to share a model id, this is a "combined view" and
+// summing is exactly what a reader would expect from a fleet-wide total.
+function allProviderModelUsage(providers) {
+  var list = Array.isArray(providers) ? providers : []
+  var combined = {}
+  for (var i = 0; i < list.length; i++) {
+    var provider = list[i] || {}
+    var usage = capModelUsage(provider.modelUsage)
+    for (var modelId in usage) {
+      var bucket = combined[modelId]
+      if (!bucket) bucket = combined[modelId] = emptyTokenBucket()
+      combineObjectNumbers(true, bucket, usage[modelId] || {})
+    }
+  }
+  return combined
+}
+
 // --------------------------------------------------------- display state
 
 // Merges one usage record with its synced counterpart (if any) into the
@@ -433,6 +460,7 @@ if (typeof module !== "undefined" && module.exports) {
     combineNumber: combineNumber,
     combineObjectNumbers: combineObjectNumbers,
     aggregateSnapshots: aggregateSnapshots,
+    allProviderModelUsage: allProviderModelUsage,
     providerSnapshot: providerSnapshot,
     buildLocalSnapshot: buildLocalSnapshot,
     mergeProviderDisplay: mergeProviderDisplay,

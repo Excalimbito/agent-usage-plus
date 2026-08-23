@@ -178,6 +178,46 @@ test("buildLocalSnapshot: null records in the list are skipped without throwing"
   assert.deepEqual(Object.keys(snapshot.providers), ["claude"])
 })
 
+// ------------------------------------------------- combined model usage (#7)
+
+test("allProviderModelUsage: combines claude+codex+fireworks fixtures into one model map", () => {
+  const claude = Aggregate.mergeProviderDisplay(readFixture("claude-ok.json"), null, null)
+  const codex = Aggregate.mergeProviderDisplay(readFixture("codex-ok.json"), null, null)
+  const fireworks = Aggregate.mergeProviderDisplay(readFixture("fireworks-ok.json"), null, null)
+
+  const combined = Aggregate.allProviderModelUsage([claude, codex, fireworks])
+  const modelIds = Object.keys(combined).sort()
+
+  // Every enabled provider's models show up, not just one chip's worth.
+  assert.deepEqual(modelIds, [
+    "claude-opus-4-20250514",
+    "claude-sonnet-4-20250514",
+    "deepseek-v3",
+    "gpt-5.6-sol"
+  ])
+
+  // Claude and Fireworks each contribute a model no other provider reports,
+  // so their buckets must pass through untouched (no cross-provider mixing).
+  assert.equal(combined["claude-opus-4-20250514"].inputTokens, 900000)
+  assert.equal(combined["claude-opus-4-20250514"].outputTokens, 210000)
+  assert.equal(combined["deepseek-v3"].inputTokens, 210000)
+  assert.equal(combined["gpt-5.6-sol"].outputTokens, 90000)
+})
+
+test("allProviderModelUsage: the same model id reported by two providers sums instead of overwriting", () => {
+  const a = { modelUsage: { "shared-model": { inputTokens: 100, outputTokens: 10, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } } }
+  const b = { modelUsage: { "shared-model": { inputTokens: 50, outputTokens: 5, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } } }
+  const combined = Aggregate.allProviderModelUsage([a, b])
+  assert.equal(combined["shared-model"].inputTokens, 150)
+  assert.equal(combined["shared-model"].outputTokens, 15)
+})
+
+test("allProviderModelUsage: an empty/garbage provider list produces an empty map without throwing", () => {
+  assert.deepEqual(Aggregate.allProviderModelUsage([]), {})
+  assert.doesNotThrow(() => Aggregate.allProviderModelUsage(null))
+  assert.deepEqual(Aggregate.allProviderModelUsage([null, {}, undefined]), {})
+})
+
 // --------------------------------------------------------------- malformed
 
 // logic/aggregate.js never parses JSON text itself (that happens in

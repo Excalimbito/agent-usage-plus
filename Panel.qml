@@ -6,6 +6,7 @@ import qs.Commons
 import qs.Ui
 import "logic/thresholds.js" as Thresholds
 import "logic/format.js" as Format
+import "logic/aggregate.js" as Aggregate
 
 Panel {
   id: root
@@ -44,12 +45,21 @@ Panel {
 
   property bool cursorActive: false
 
+  // Session-only: never written to shell.json, and always false the moment
+  // the panel opens (see onOpenedChanged below) — nobody should be surprised
+  // by a bigger popup than the one they closed last time.
+  property bool expanded: false
+  function toggleExpanded() { root.expanded = !root.expanded }
+
   // Countdowns and "updated" read this instead of Date.now() so the
   // panel keeps telling the truth while it sits open.
   property double nowMs: Date.now()
 
   readonly property var limits: limitWindows(provider)
   readonly property var models: modelRows(provider)
+  // Only computed while expanded: collapsed behavior/output must stay
+  // exactly what it was before this property existed.
+  readonly property var allModels: expanded ? allModelRows(providers) : []
   readonly property var headline: bindingWindow(provider)
   readonly property var balance: provider ? (provider.balance || null) : null
 
@@ -261,8 +271,12 @@ Panel {
     return peak
   }
 
-  function modelRows(p) {
-    var usageByModel = p ? (p.modelUsage || {}) : {}
+  // Shared by the per-provider "TOKENS BY MODEL" section and the expanded
+  // view's cross-provider one below — both start from a modelId -> token
+  // bucket map, they just build it differently (one provider's modelUsage
+  // vs. Aggregate.allProviderModelUsage's combined map across every
+  // enabled provider).
+  function modelUsageRows(usageByModel, limit) {
     var rows = []
     for (var id in usageByModel) {
       var bucket = usageByModel[id] || {}
@@ -280,7 +294,18 @@ Panel {
       })
     }
     rows.sort(function(a, b) { return b.total - a.total })
-    return rows.slice(0, 4)
+    return rows.slice(0, limit || 4)
+  }
+
+  function modelRows(p) {
+    return modelUsageRows(p ? (p.modelUsage || {}) : {}, 4)
+  }
+
+  // Every enabled provider's models in one table, not just the currently
+  // selected chip's — only computed/rendered when the panel is expanded.
+  // A generous cap (12) since it spans every subscription at once.
+  function allModelRows(providerList) {
+    return modelUsageRows(Aggregate.allProviderModelUsage(providerList), 12)
   }
 
   function modelTooltip(row) {
@@ -354,6 +379,7 @@ Panel {
   onProviderIndexChanged: if (panelFlick) panelFlick.contentY = 0
   onOpenedChanged: if (opened) {
     cursorActive = false
+    expanded = false
     nowMs = Date.now()
     if (panelFlick) panelFlick.contentY = 0
     usage.refreshLimits()
@@ -636,7 +662,10 @@ Panel {
       onActivateRequested: root.refreshNow()
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
-      onTextKey: function(t) { if (t === "r" || t === "R") root.refreshNow() }
+      onTextKey: function(t) {
+        if (t === "r" || t === "R") root.refreshNow()
+        else if (t === "e" || t === "E") root.toggleExpanded()
+      }
 
       Flickable {
         id: panelFlick
@@ -663,6 +692,19 @@ Panel {
             meta: root.heroMeta(root.provider)
             foreground: root.foreground
             fontFamily: root.fontFamily
+
+            // Expand/collapse the combined cross-provider section below —
+            // the only way to reach it besides the `e` key. Chevron points
+            // the direction the panel is about to grow/shrink.
+            trailingControl: Component {
+              PanelActionButton {
+                iconText: root.expanded ? "󰅃" : "󰅀"
+                tooltipText: root.expanded ? "Collapse (e)" : "Expand (e)"
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                onClicked: root.toggleExpanded()
+              }
+            }
 
             iconComponent: Component {
               Item {
@@ -939,6 +981,52 @@ Panel {
                 // the same scale-to-peak the weekly chart uses for its busiest day.
                 share: modelData.total / Math.max(1, root.models[0].total)
               }
+            }
+          }
+
+          // ---------- Expanded: combined view across every enabled
+          // provider, not just the currently selected chip. Purely
+          // additive — session-only `expanded` defaults to false, so a
+          // panel that never toggles it renders identically to before
+          // this section existed.
+          PanelSeparator {
+            visible: root.expanded
+            foreground: root.foreground
+          }
+
+          Column {
+            id: expandedSection
+            visible: root.expanded
+            width: parent.width
+            spacing: Style.spacing.md
+
+            PanelSectionHeader {
+              width: parent.width
+              text: "TOKENS BY MODEL · ALL SUBSCRIPTIONS"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
+
+            Repeater {
+              model: root.allModels
+
+              ModelRow {
+                required property var modelData
+                width: expandedSection.width
+                row: modelData
+                share: modelData.total / Math.max(1, root.allModels[0].total)
+              }
+            }
+
+            Text {
+              visible: root.allModels.length === 0
+              width: parent.width
+              text: "No model usage yet across enabled subscriptions."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              horizontalAlignment: Text.AlignHCenter
+              wrapMode: Text.WordWrap
             }
           }
 
