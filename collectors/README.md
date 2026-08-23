@@ -74,7 +74,8 @@ after updating this repository; it replaces only its own package and symlinks.
 existing local transcript collector, then add the versioned `cost` block from
 the repository's official-rate catalogue. They never send transcript content,
 credentials, or usage to a network endpoint. A used model without an exact
-price intentionally produces no partial dollar total.
+price is excluded from the subtotal and the resulting estimate is explicitly
+marked partial, never silently treated as zero.
 
 Run either wrapper directly to inspect the resulting record. The Claude
 wrapper defaults to Omarchy's packaged scanner. For Codex or a custom scanner,
@@ -115,8 +116,6 @@ available, create this **mode 600** file instead:
 {
   "openrouter": { "apiKey": "…" },
   "deepseek": { "apiKey": "…" },
-  "xai": { "managementKey": "…", "teamId": "optional-team-id" },
-  "zai": { "apiKey": "…" }
   "xai": { "managementKey": "…", "teamId": "optional-team-id" },
   "zai": { "apiKey": "…" },
   "kimi": { "apiKey": "…" }

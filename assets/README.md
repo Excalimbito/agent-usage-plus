@@ -24,8 +24,7 @@ runtime.
 
 ## Known ids
 
-Icons currently shipped, one per collector this repo's docs/README
-describe:
+Icons currently shipped:
 
 | id | file(s) |
 |---|---|
@@ -33,26 +32,21 @@ describe:
 | `codex` | `codex.svg`, `codex-light.svg` |
 | `fireworks` | `fireworks.svg` |
 
-The following ids are **reserved as placeholders**, not currently
-supported providers. They're listed here so a future collector for one of
-these can claim the id and contribute a matching icon without a naming
-collision — this is a reservation, not a claim that this plugin ships
-support for them today. No collector for any of these exists yet, and this
-repo does not ship code for them; per the
-[collector contract](../docs/collector-contract.md), any real collector for
-one of these lives in a separate repo (e.g.
-`omarchy-agent-usage-<id>`), not here.
+The supported companion package includes these providers but deliberately
+ships no icon for them yet. They use the panel's text-initial fallback with
+no failed image request or runtime warning:
 
 - `openrouter`
 - `zai`
 - `deepseek`
 - `gemini`
 - `cursor`
+- `kimi`
+- `xai`
 
-If you're building a collector for one of these (or any other provider) and
-want an icon added ahead of time, open a PR here that adds only the
-SVG file(s) — see [`CONTRIBUTING.md`](../CONTRIBUTING.md#proposing-a-new-icon)
-at the repo root for how to propose it.
+If you're adding an icon for one of these (or any other provider), add the
+SVG file(s) and the exact filename to `Panel.qml`'s registry in the same PR;
+see [`CONTRIBUTING.md`](../CONTRIBUTING.md#proposing-a-new-icon).
 
 ## SVG guidelines
 

@@ -5,7 +5,7 @@
   "version": "1.5.0",
   "author": "Gabriele Vigano",
   "license": "MIT",
-  "description": "Claude Code, Codex, and Fireworks usage, limits, and pace in a native Omarchy bar panel.",
+  "description": "Live AI coding-subscription usage, limits, API-rate estimates, and token history in a native Omarchy bar panel.",
   "kinds": [
     "bar-widget"
   ],
@@ -36,6 +36,41 @@
           "primary": false
         },
         "fireworks": {
+          "enabled": true,
+          "showInBar": true,
+          "primary": false
+        },
+        "openrouter": {
+          "enabled": true,
+          "showInBar": true,
+          "primary": false
+        },
+        "deepseek": {
+          "enabled": true,
+          "showInBar": true,
+          "primary": false
+        },
+        "gemini": {
+          "enabled": true,
+          "showInBar": true,
+          "primary": false
+        },
+        "cursor": {
+          "enabled": true,
+          "showInBar": true,
+          "primary": false
+        },
+        "kimi": {
+          "enabled": true,
+          "showInBar": true,
+          "primary": false
+        },
+        "xai": {
+          "enabled": true,
+          "showInBar": true,
+          "primary": false
+        },
+        "zai": {
           "enabled": true,
           "showInBar": true,
           "primary": false

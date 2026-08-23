@@ -1111,7 +1111,9 @@ Panel {
             visible: root.providers.length === 0
             width: parent.width
             topPadding: Style.space(24)
-            text: "No AI coding subscriptions found.\nAgents show up here once you've used them."
+            text: usage.initialDiscoveryComplete
+              ? "No AI coding subscriptions found.\nAgents show up here once you've used them."
+              : "Scanning AI coding subscriptions…"
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.body

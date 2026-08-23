@@ -28,6 +28,11 @@ Item {
   property var agentIds: []
   property var agents: []
   property int dataRevision: 0
+  // A cold shell restart needs one bounded directory listing plus per-record
+  // reads before a panel can honestly say that no subscriptions exist.
+  // Expose that short-lived state so Panel.qml does not flash a false empty
+  // state while its initial scan is still in flight.
+  property bool initialDiscoveryComplete: false
 
   // Hard caps on the local usage-directory scan: a file at or above maxAgentFileBytes
   // is excluded before any Agent/FileView is ever created for it, the file count is
@@ -71,6 +76,7 @@ Item {
     // Same list, same objects: reassigning the model would tear down every
     // FileView just to build identical ones.
     if (JSON.stringify(ids) !== JSON.stringify(agentIds)) agentIds = ids
+    initialDiscoveryComplete = true
   }
 
   Instantiator {

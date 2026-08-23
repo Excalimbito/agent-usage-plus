@@ -131,14 +131,12 @@ cross-device aggregation); `Agent.qml` is the per-record file watcher.
   to the heaviest model,
   the same way the weekly chart scales to its busiest day. Hover for the
   input / output / cache split.
-- **Est. API cost** *(optional)* — a collapsible row showing what a
-  provider's usage would have cost at published API rates, if that
-  provider's collector reports it. This is a derived estimate, not a real
-  bill, and the panel always labels it as one. None of the three shipped
-  providers (Claude, Codex, Fireworks) report this today, so this row is
-  invisible on a stock install — it only appears once some collector adds
-  the optional `cost` block documented in
-  [`docs/collector-contract.md`](docs/collector-contract.md).
+- **Est. API cost** *(optional)* — a collapsible estimate of what recorded
+  usage would have cost at published API rates. The Claude and Codex
+  transcript-cost wrappers populate it when installed with
+  `--with-transcript-cost`. It is never a
+  bill: a subtotal that excludes an unknown model is explicitly marked
+  partial rather than presented as a made-up zero.
 
 A subscription appears only when it is enabled in settings and has actually
 recorded usage — on this machine or on a synced one. With one such agent
@@ -168,11 +166,14 @@ record that lands in the directory regardless of who wrote it.
 Adding an agent needs a collector that prints one JSON record — id,
 plan/limits or a prepaid balance, token usage where an authoritative source
 exists, model breakdown, and the auth-missing / endpoint-down conventions
-the panel knows how to show. The supported package in
-[`collectors/`](collectors/) currently adds OpenRouter and DeepSeek; it has
-an opt-in user timer and an optional Omarchy-updater integration without
-changing the plugin runtime. The full field-by-field spec, with minimal and
-complete examples, lives in
+the panel knows how to show. The supported companion package in
+[`collectors/`](collectors/) ships collectors for OpenRouter, Z.AI/GLM,
+DeepSeek, Gemini, Cursor, Kimi, and xAI/Grok, plus the Claude/Codex
+transcript-cost wrappers. It has an opt-in user timer and optional
+Omarchy-updater integration without changing the plugin runtime; see
+[`collectors/README.md`](collectors/README.md) for each provider's
+credential source and limitations. The full field-by-field spec, with
+minimal and complete examples, lives in
 [`docs/collector-contract.md`](docs/collector-contract.md); see Omarchy's
 own `omarchy-agent-usage-claude` and `omarchy-agent-usage-codex` (at
 `/usr/share/omarchy/bin/`, not part of this repo) for two real
@@ -183,8 +184,8 @@ actionable errors, without needing the plugin installed at all. An
 `assets/<id>.svg` mark is optional — with an
 `assets/<id>-light.svg` twin if the mark needs a dark variant for light
 surfaces — and the bar glyph stands in when there is none. See
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for the repo boundary (collectors
-don't live here), how to propose a new icon, and the PR checklist.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for contributor guidance, how to
+propose a new icon, and the PR checklist.
 
 | Collector | Limits | Local stats |
 |---|---|---|
@@ -193,6 +194,11 @@ don't live here), how to propose a new icon, and the PR checklist.
 | `fireworks` | Estimated prepaid balance: configured funding minus rated account costs | Fireworks billing API, grouped by day and model for the last 30 days |
 | `openrouter` *(companion package)* | Current API key's configured budget and remaining spend | OpenRouter current-key metadata endpoint |
 | `deepseek` *(companion package)* | Current account API-credit ledger | DeepSeek user-balance endpoint |
+| `gemini` *(companion package)* | Gemini Code Assist quota buckets when the local CLI is signed in | CLI account metadata where available |
+| `cursor` *(companion package)* | Cursor plan/session allowance when locally available | Local Cursor agent usage where available |
+| `kimi` *(companion package)* | Kimi API quota window | Kimi account endpoint |
+| `xai` *(companion package)* | xAI API credit balance | xAI management API |
+| `zai` *(companion package)* | Clear credential/status state; Z.AI does not publish a compatible live meter | — |
 
 Claude limits need a signed-in CLI; without credentials the panel says so and
 falls back to local stats only. A non-default Claude directory is honored via
