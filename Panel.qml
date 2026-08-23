@@ -106,9 +106,15 @@ Panel {
   // means expanding the panel for the first time shows a chart, not an
   // immediate "not available" message.
   property string historyRangeId: "7d"
+  // Details use every day the collector has actually recorded (up to 30),
+  // instead of pretending 24h/30d/90d are interchangeable choices when
+  // the source only has a week. This removes a misleading selector and makes
+  // the chart's time span self-evident.
+  readonly property int detailHistoryDays: provider && provider.recentDays
+    ? Math.min(30, Math.max(1, provider.recentDays.length)) : 7
   // Only computed while expanded, same reasoning as `allModels` above.
   readonly property var historySeries: (expanded && provider)
-    ? History.buildHistorySeries(provider.recentDays || [], History.rangeDaysFor(historyRangeId))
+    ? History.buildHistorySeries(provider.recentDays || [], detailHistoryDays)
     : null
 
   function historyUnavailableText(series) {
@@ -489,13 +495,18 @@ Panel {
   function costHelpText(cost) {
     if (!cost) return ""
     var unknown = cost.unknownModels || []
+    var name = provider ? String(provider.providerName || "this provider") : "this provider"
     if (cost.incomplete) {
       var names = []
       for (var i = 0; i < unknown.length; i++) names.push(usage.friendlyModelName(unknown[i]))
-      return "Excludes " + (names.length === 1 ? "unpriced model: " : "unpriced models: ")
-        + names.join(", ") + "."
+      return "API-equivalent estimate for " + name + "; excludes "
+        + (names.length === 1 ? "unpriced model: " : "unpriced models: ")
+        + names.join(", ") + ". Not a subscription bill."
     }
-    return "Transcript usage priced at published API rates. Not a bill."
+    var priced = Number(cost.pricedTokens || 0)
+    var coverage = priced > 0 ? " from " + usage.formatTokenCount(priced) + " transcript tokens" : ""
+    return "API-equivalent cost for " + name + coverage
+      + ". It is not subscription usage or a bill."
   }
 
   function dayTooltip(day, today) {
@@ -986,7 +997,7 @@ Panel {
     // A dashboard needs room for labels and numbers to breathe. The previous
     // narrow panel regularly truncated the cost source and model names,
     // making otherwise correct information look unfinished.
-    contentWidth: panel.fittedContentWidth(Style.space(430))
+    contentWidth: panel.fittedContentWidth(root.settingsOpen ? Style.space(720) : Style.space(430))
     // Keep the everyday Claude/Codex view on screen. Details can be longer,
     // but making the default popup short turned even ordinary mouse-wheel
     // scrolling into needless work.
@@ -1025,7 +1036,9 @@ Panel {
         interactive: contentHeight > height
         maximumFlickVelocity: 4800
         flickDeceleration: 900
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        // The normal view fits without scrolling. Details and Settings still
+        // respond to wheel, touchpad, drag, and keyboard, without a permanent
+        // scrollbar competing with the information.
 
         Column {
           id: column
@@ -1051,6 +1064,7 @@ Panel {
             // asked to see.
             trailingControl: Component {
               Row {
+                anchors.verticalCenter: parent.verticalCenter
                 spacing: Style.space(8)
 
                 PanelActionButton {
@@ -1132,110 +1146,38 @@ Panel {
           }
 
           // ---------- Provider switch ----------
-          Flickable {
+          // A wrapping rail makes every enabled provider a direct choice.
+          // It avoids both the hidden horizontal scroll and the redundant
+          // "1 of N" navigation controls that used to crowd the popup.
+          Flow {
             id: providerSwitch
             visible: root.providers.length > 1
             width: parent.width
-            implicitHeight: providerChipRow.implicitHeight
-            height: implicitHeight
-            contentWidth: Math.max(width, providerChipRow.implicitWidth)
-            contentHeight: height
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            flickableDirection: Flickable.HorizontalFlick
-            interactive: contentWidth > width
+            implicitHeight: childrenRect.height
+            spacing: Style.space(10)
 
-            // Fixed-size, horizontally scrollable chips preserve provider
-            // names as coverage grows. The old equal-width row made every
-            // name narrower with each added provider, eventually turning the
-            // subscription switch into an unlabeled strip of buttons. Cap
-            // text at the chip boundary as Button itself does not elide it.
-            Row {
-              id: providerChipRow
-              spacing: Style.spacing.md
+            Repeater {
+              id: providerChipRepeater
+              model: root.providers
 
-              Repeater {
-                id: providerChipRepeater
-                model: root.providers
+              Button {
+                required property var modelData
+                required property int index
 
-                Button {
-                  required property var modelData
-                  required property int index
-
-                  width: Style.space(132)
-                  text: root.providerChipLabel(modelData)
-                  selected: index === root.providerIndex
-                  hasCursor: root.cursorActive && index === root.providerIndex
-                  bordered: true
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.bodySmall
-                  verticalPadding: Style.spacing.controlPaddingY
-                  onClicked: {
-                    root.cursorActive = true
-                    root.selectProvider(index)
-                  }
-                  onHovered: function(isHovered) { if (isHovered) root.cursorActive = true }
+                width: Math.min(Style.space(160), Math.max(Style.space(118), implicitWidth + Style.space(22)))
+                text: root.providerChipLabel(modelData)
+                selected: index === root.providerIndex
+                hasCursor: root.cursorActive && index === root.providerIndex
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.bodySmall
+                verticalPadding: Style.spacing.controlPaddingY
+                onClicked: {
+                  root.cursorActive = true
+                  root.selectProvider(index)
                 }
-              }
-            }
-
-            ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
-          }
-
-          // A clipped horizontal row without controls looked exactly like the
-          // panel had discovered only its first few providers. The count and
-          // arrows make every installed provider reachable with a click as
-          // well as by touch/keyboard; no one has to guess that the strip
-          // scrolls or remember h/l just to find provider four.
-          Item {
-            visible: root.providers.length > 3
-            width: parent.width
-            implicitHeight: providerNavigatorText.implicitHeight
-
-            Text {
-              id: providerNavigatorText
-              anchors.left: parent.left
-              anchors.right: providerPrevious.left
-              anchors.rightMargin: Style.space(8)
-              anchors.verticalCenter: parent.verticalCenter
-              text: (root.providerIndex + 1) + " of " + root.providers.length + " subscriptions"
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              elide: Text.ElideRight
-            }
-
-            PanelActionButton {
-              id: providerPrevious
-              anchors.right: providerNext.left
-              anchors.rightMargin: Style.space(10)
-              anchors.verticalCenter: parent.verticalCenter
-              iconText: "󰅁"
-              tooltipText: "Previous subscription (h)"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              bordered: true
-              focusable: true
-              onClicked: {
-                root.cursorActive = true
-                root.selectProvider(root.providerIndex - 1)
-              }
-            }
-
-            PanelActionButton {
-              id: providerNext
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              iconText: "󰅂"
-              tooltipText: "Next subscription (l)"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              bordered: true
-              focusable: true
-              onClicked: {
-                root.cursorActive = true
-                root.selectProvider(root.providerIndex + 1)
+                onHovered: function(isHovered) { if (isHovered) root.cursorActive = true }
               }
             }
           }
@@ -1549,7 +1491,7 @@ Panel {
 
           Column {
             id: usageSection
-            visible: !!root.provider && root.provider.recentDays && root.provider.recentDays.length > 0
+            visible: root.expanded && !!root.provider && root.provider.recentDays && root.provider.recentDays.length > 0
             width: parent.width
             spacing: Style.spacing.md
 
@@ -1602,7 +1544,7 @@ Panel {
 
           Column {
             id: modelSection
-            visible: root.models.length > 0
+            visible: root.expanded && root.models.length > 0
             width: parent.width
             spacing: Style.spacing.md
 
@@ -1707,7 +1649,7 @@ Panel {
 
             PanelSectionHeader {
               width: parent.width
-              text: "TOKENS BY DAY · CHART"
+              text: "History"
               foreground: root.foreground
               fontFamily: root.fontFamily
             }
@@ -1723,52 +1665,12 @@ Panel {
               wrapMode: Text.WordWrap
             }
 
-            // ---------- Range selector: purely a session-only UI-state
-            // change over data already in memory (`root.historySeries`
-            // just re-slices `provider.recentDays`). It never calls
-            // usage.runUpdate() or anything else that reaches Main.qml's
-            // updateProcess, so switching ranges never triggers a new
-            // collector run.
-            Row {
-              id: historyRangeRow
-              visible: !!root.provider
-              width: parent.width
-              spacing: Style.spacing.md
-
-              readonly property real cellWidth: History.RANGE_OPTIONS.length > 0
-                ? (width - spacing * (History.RANGE_OPTIONS.length - 1)) / History.RANGE_OPTIONS.length
-                : 0
-
-              Repeater {
-                model: History.RANGE_OPTIONS
-
-                Button {
-                  required property var modelData
-
-                  width: historyRangeRow.cellWidth
-                  text: modelData.label
-                  selected: modelData.id === root.historyRangeId
-                  hasCursor: root.cursorActive && modelData.id === root.historyRangeId
-                  bordered: true
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.bodySmall
-                  verticalPadding: Style.spacing.controlPaddingY
-                  onClicked: {
-                    root.cursorActive = true
-                    root.historyRangeId = modelData.id
-                  }
-                  onHovered: function(isHovered) { if (isHovered) root.cursorActive = true }
-                }
-              }
-            }
-
             Text {
               visible: !!(root.historySeries && root.historySeries.ok)
               width: parent.width
               text: root.historySeries
-                ? root.historyRangeLabel(root.historyRangeId) + " · "
-                  + usage.formatTokenCount(root.historySeriesTotal(root.historySeries)) + " tokens total"
+                ? root.historySeries.points.length + " recorded days · "
+                  + usage.formatTokenCount(root.historySeriesTotal(root.historySeries)) + " tokens"
                 : ""
               textFormat: Text.PlainText
               color: root.dim
@@ -1780,7 +1682,7 @@ Panel {
               id: historyCanvas
               visible: !!(root.historySeries && root.historySeries.ok && root.historySeries.points.length > 0)
               width: parent.width
-              height: Style.spacing.controlHeight * 2
+              height: Style.space(112)
 
               property var series: root.historySeries
               property color barColor: root.foreground
@@ -1814,6 +1716,12 @@ Panel {
                   var barWidth = Math.max(1, (width - gap * (n - 1)) / n)
                   var todayDate = root.todayDate()
 
+                  // Two quiet guide lines give the bars a baseline and a
+                  // halfway reference without turning this into chart chrome.
+                  ctx.fillStyle = root.alpha(historyCanvas.barColor, 0.10)
+                  ctx.fillRect(0, height - 1, width, 1)
+                  ctx.fillRect(0, Math.round(height * 0.5), width, 1)
+
                   for (var i = 0; i < n; i++) {
                     var point = points[i] || {}
                     var value = Math.max(0, Number(point.value) || 0)
@@ -1833,6 +1741,26 @@ Panel {
                 } catch (e) {
                   // Swallow: a chart that fails to draw should leave a
                   // blank strip, not take the rest of the panel down.
+                }
+              }
+            }
+
+            Row {
+              id: historyLabels
+              visible: !!(root.historySeries && root.historySeries.ok && root.historySeries.points.length > 0)
+              width: parent.width
+
+              Repeater {
+                model: root.historySeries && root.historySeries.points ? root.historySeries.points : []
+
+                Text {
+                  required property var modelData
+                  width: historyLabels.width / Math.max(1, root.historySeries.points.length)
+                  text: String(modelData.date || "").slice(5)
+                  horizontalAlignment: Text.AlignHCenter
+                  color: String(modelData.date || "") === root.todayDate() ? root.foreground : root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
                 }
               }
             }
@@ -1875,133 +1803,132 @@ Panel {
               fontFamily: root.fontFamily
             }
 
-            // ----- Per-provider enabled / shown in bar -----
-            Column {
+            // ----- Per-provider controls -----
+            // Settings deliberately use a wide, wrapping card grid. The old
+            // one-provider-per-row layout made ten optional providers feel
+            // like an error log and required a painfully long scroll.
+            Flow {
+              id: providerSettingsGrid
               width: parent.width
-              spacing: Style.space(10)
+              spacing: Style.space(14)
+              readonly property real cellWidth: (width - spacing * 2) / 3
 
               Repeater {
                 model: root.settingsProviders
 
-                Column {
-                  id: providerSettingsRow
+                Rectangle {
+                  id: providerSettingsCard
                   required property var modelData
-                  width: parent.width
-                  spacing: Style.space(6)
+                  width: providerSettingsGrid.cellWidth
+                  implicitHeight: providerSettingsContent.implicitHeight + Style.space(24)
+                  color: root.alpha(root.foreground, 0.035)
+                  border.width: 1
+                  border.color: root.alpha(root.foreground, 0.12)
+                  radius: Style.cornerRadius
 
-                  Text {
-                    text: providerSettingsRow.modelData.providerName
-                    color: root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    font.bold: true
-                    elide: Text.ElideRight
-                    width: parent.width
-                  }
+                  Column {
+                    id: providerSettingsContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: Style.space(12)
+                    anchors.rightMargin: Style.space(12)
+                    spacing: Style.space(8)
 
-                  Text {
-                    text: root.providerDescription(providerSettingsRow.modelData.providerId)
-                    visible: text !== ""
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                    width: parent.width
-                    wrapMode: Text.WordWrap
-                  }
-
-                  Flow {
-                    width: parent.width
-                    spacing: Style.spacing.xl
-
-                    Row {
-                      spacing: Style.space(6)
-
-                      ToggleSwitch {
-                        id: enabledSwitch
-                        anchors.verticalCenter: parent.verticalCenter
-                        checked: providerSettingsRow.modelData.enabled
-                        foreground: root.foreground
-                        accent: Color.accent
-                        onToggled: usage.setProviderEnabled(providerSettingsRow.modelData.providerId, !providerSettingsRow.modelData.enabled)
-                      }
-
-                      Text {
-                        text: "Enabled"
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: root.dim
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
-                      }
+                    Text {
+                      text: providerSettingsCard.modelData.providerName
+                      color: root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.bodySmall
+                      font.bold: true
+                      elide: Text.ElideRight
+                      width: parent.width
                     }
 
-                    // Dimmed and non-interactive while the provider itself
-                    // is disabled: "show in bar" has no effect on a
-                    // provider that's off entirely, and leaving both
-                    // switches independently clickable read as two
-                    // contradictory settings instead of one depending on
-                    // the other.
-                    Row {
-                      spacing: Style.space(6)
-                      enabled: providerSettingsRow.modelData.enabled
-                      opacity: providerSettingsRow.modelData.enabled ? 1.0 : 0.45
-
-                      ToggleSwitch {
-                        id: showInBarSwitch
-                        anchors.verticalCenter: parent.verticalCenter
-                        checked: providerSettingsRow.modelData.showInBar
-                        foreground: root.foreground
-                        accent: Color.accent
-                        onToggled: usage.setProviderShowInBar(providerSettingsRow.modelData.providerId, !providerSettingsRow.modelData.showInBar)
-                      }
-
-                      Text {
-                        text: "Show in bar"
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: root.dim
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
-                      }
+                    Text {
+                      text: root.providerDescription(providerSettingsCard.modelData.providerId)
+                      visible: text !== ""
+                      color: root.dim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      width: parent.width
+                      wrapMode: Text.WordWrap
                     }
 
-                    // Only meaningful under `barMode: "primary"` (issue #5),
-                    // but left clickable regardless of the current
-                    // `barMode` — flipping it now, then switching `barMode`
-                    // to "primary" later, should already reflect the choice
-                    // rather than requiring the toggle to be re-set.
-                    Row {
-                      spacing: Style.space(6)
-                      enabled: providerSettingsRow.modelData.enabled
-                      opacity: providerSettingsRow.modelData.enabled ? 1.0 : 0.45
+                    Flow {
+                      width: parent.width
+                      spacing: Style.space(12)
 
-                      ToggleSwitch {
-                        id: primarySwitch
-                        anchors.verticalCenter: parent.verticalCenter
-                        checked: providerSettingsRow.modelData.primary
-                        foreground: root.foreground
-                        accent: Color.accent
-                        onToggled: usage.setProviderPrimary(providerSettingsRow.modelData.providerId, !providerSettingsRow.modelData.primary)
+                      Row {
+                        spacing: Style.space(6)
+                        ToggleSwitch {
+                          checked: providerSettingsCard.modelData.enabled
+                          anchors.verticalCenter: parent.verticalCenter
+                          foreground: root.foreground
+                          accent: Color.accent
+                          onToggled: usage.setProviderEnabled(providerSettingsCard.modelData.providerId, !providerSettingsCard.modelData.enabled)
+                        }
+                        Text {
+                          text: "Enabled"
+                          anchors.verticalCenter: parent.verticalCenter
+                          color: root.dim
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                        }
                       }
 
-                      Text {
-                        text: "Primary"
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: root.dim
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
+                      Row {
+                        spacing: Style.space(6)
+                        enabled: providerSettingsCard.modelData.enabled
+                        opacity: enabled ? 1.0 : 0.45
+                        ToggleSwitch {
+                          checked: providerSettingsCard.modelData.showInBar
+                          anchors.verticalCenter: parent.verticalCenter
+                          foreground: root.foreground
+                          accent: Color.accent
+                          onToggled: usage.setProviderShowInBar(providerSettingsCard.modelData.providerId, !providerSettingsCard.modelData.showInBar)
+                        }
+                        Text {
+                          text: "In bar"
+                          anchors.verticalCenter: parent.verticalCenter
+                          color: root.dim
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                        }
+                      }
+
+                      Row {
+                        spacing: Style.space(6)
+                        enabled: providerSettingsCard.modelData.enabled
+                        opacity: enabled ? 1.0 : 0.45
+                        ToggleSwitch {
+                          checked: providerSettingsCard.modelData.primary
+                          anchors.verticalCenter: parent.verticalCenter
+                          foreground: root.foreground
+                          accent: Color.accent
+                          onToggled: usage.setProviderPrimary(providerSettingsCard.modelData.providerId, !providerSettingsCard.modelData.primary)
+                        }
+                        Text {
+                          text: "Primary"
+                          anchors.verticalCenter: parent.verticalCenter
+                          color: root.dim
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                        }
                       }
                     }
                   }
                 }
               }
+            }
 
-              Text {
-                visible: root.settingsProviders.length === 0
-                width: parent.width
-                text: "No subscriptions discovered yet."
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-              }
+            Text {
+              visible: root.settingsProviders.length === 0
+              width: parent.width
+              text: "No subscriptions discovered yet."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
             }
 
             // ----- Bar display mode (issue #5) -----
