@@ -1153,7 +1153,6 @@ Panel {
             id: providerSwitch
             visible: root.providers.length > 1
             width: parent.width
-            implicitHeight: childrenRect.height
             spacing: Style.space(10)
 
             Repeater {
