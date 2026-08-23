@@ -84,6 +84,20 @@ Item {
     recordsChanged()
   }
 
+  // Agent.qml reads its record through a bounded, one-shot process rather
+  // than a watched FileView (see Agent.qml for why), so nothing re-reads a
+  // record on its own when the file changes underneath it. Call this
+  // whenever the collector may just have rewritten records — a newly
+  // discovered agent picks up its first record on its own via
+  // Component.onCompleted, so this only needs to cover ones that already
+  // existed.
+  function reloadAllAgents() {
+    for (var i = 0; i < agentInstantiator.count; i++) {
+      var agent = agentInstantiator.objectAt(i)
+      if (agent) agent.reload()
+    }
+  }
+
   function recordsChanged() {
     dataRevision++
     scheduleLimitsRetry()
@@ -135,11 +149,18 @@ Item {
     onTriggered: root.runUpdate("normal")
   }
 
+  // A collector talking to a misbehaving provider API could dump an
+  // arbitrarily large error body to stderr; cap what actually reaches this
+  // process's memory at the producer boundary instead of trusting the
+  // collector to behave.
+  readonly property int maxUpdateStderrBytes: 65536
+
   Process {
     id: updateProcess
     running: false
     onExited: {
       root.rescanAgents()
+      root.reloadAllAgents()
       if (root.pendingUpdateKind !== "") {
         var kind = root.pendingUpdateKind
         root.pendingUpdateKind = ""
@@ -170,6 +191,14 @@ Item {
     return command
   }
 
+  // Wraps the real command so only the first maxUpdateStderrBytes bytes of
+  // its stderr ever reach updateProcess's StdioCollector, no matter how
+  // much a provider collector's diagnostics try to write.
+  function boundedCommand(command, maxStderrBytes) {
+    var script = 'exec "$0" "$@" 2> >(head -c ' + maxStderrBytes + ' >&2)'
+    return ["bash", "-c", script].concat(command)
+  }
+
   function runUpdate(kind, agentIds) {
     if (updateProcess.running) {
       // Collapse queued requests to one full rerun; a forced refresh outranks
@@ -177,7 +206,7 @@ Item {
       if (kind === "force" || root.pendingUpdateKind === "") root.pendingUpdateKind = kind
       return
     }
-    updateProcess.command = updateCommand(kind, agentIds)
+    updateProcess.command = boundedCommand(updateCommand(kind, agentIds), root.maxUpdateStderrBytes)
     updateProcess.running = true
   }
 
