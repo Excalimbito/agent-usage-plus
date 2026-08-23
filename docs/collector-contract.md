@@ -195,6 +195,9 @@ number — never present it as "this is what you were charged."
 | `estimateUsd` | number, ≥ 0 | **yes** (to make the object count at all) | The headline derived estimate for `period`, in US dollars. A missing or negative value makes the panel treat the whole `cost` object as absent, the same convention `balance.remaining` uses. |
 | `period` | string | no | Free-text label for the window `estimateUsd` covers, e.g. `"30d"`, `"This month"`, `"All time"`. Shown next to the estimate; omit it if your estimate doesn't have a clean window. Max 20 chars. |
 | `pricingVersion` | string | recommended | Version of the rate catalogue used to compute this estimate (for the bundled estimator, e.g. `"2026-08-23"`). This makes a cached estimate auditable after a price update. |
+| `incomplete` | boolean | no | `true` only when this is a partial subtotal: at least one used model has no published API rate. The panel labels it **partial** and names the excluded models. |
+| `unknownModels` | array of strings | required when `incomplete` | Model ids excluded from the subtotal because no exact price is known. Capped at 20 for display. |
+| `pricedTokens` / `unpricedTokens` | integers, ≥ 0 | no | Auditable token coverage for a partial subtotal. |
 | `byModel` | array of `{ "model": string, "usd": number, "tokens": integer }` | no | Per-model breakdown of the same estimate. Capped at 100 entries; a negative `usd` reads as `0`. |
 | `byDay` | array of `{ "date": "YYYY-MM-DD", "usd": number }` | no | Per-day breakdown of the same estimate, meant to line up with `recentDays`. Capped at 31 entries; a negative `usd` reads as `0`. |
 
@@ -212,9 +215,10 @@ now; third-party collectors remain welcome too — see `CONTRIBUTING.md`.
 The reusable, versioned estimator is [`logic/cost.js`](../logic/cost.js),
 with its official-rate catalogue in
 [`logic/api-price-catalogue.js`](../logic/api-price-catalogue.js). It is
-intended for the Claude and Codex transcript collectors. It refuses to emit
-an estimate when any used model has no exact catalogue entry; surface its
-`unknownModels` result to the user rather than publishing a partial total.
+intended for the Claude and Codex transcript collectors. When a transcript
+has both priced and unknown models, it emits a clearly marked partial subtotal
+with `unknownModels`; when every used model is unknown it emits no cost at all.
+It never guesses a price from a similarly named model.
 
 ## Error states
 

@@ -39,15 +39,18 @@ function calculateCost(input) {
   var byModel = []
   var unknown = []
   var total = 0
+  var pricedTokens = 0
+  var unpricedTokens = 0
 
   for (var model in usage) {
     var bucket = usage[model]
     var tokens = bucketTokens(bucket)
     if (tokens === 0) continue
     var price = priceFor(provider, model)
-    if (!price) { unknown.push(model); continue }
+    if (!price) { unknown.push(model); unpricedTokens += tokens; continue }
     var usd = bucketUsd(bucket, price)
     total += usd
+    pricedTokens += tokens
     byModel.push({ model: model, usd: usd, tokens: Math.round(tokens) })
   }
 
@@ -74,12 +77,19 @@ function calculateCost(input) {
   return {
     pricingVersion: Catalogue.version,
     unknownModels: unknown.sort(),
-    cost: unknown.length ? null : {
+    // Never turn an entirely unknown transcript into a fabricated $0. But
+    // one unpriced internal model must not hide all of Codex's known usage.
+    // The result explicitly marks that subtotal as partial.
+    cost: pricedTokens === 0 && unknown.length > 0 ? null : {
       estimateUsd: total,
       period: String(options.period || ""),
       pricingVersion: Catalogue.version,
       byModel: byModel,
-      byDay: byDay
+      byDay: byDay,
+      incomplete: unknown.length > 0,
+      unknownModels: unknown.sort(),
+      pricedTokens: Math.round(pricedTokens),
+      unpricedTokens: Math.round(unpricedTokens)
     }
   }
 }

@@ -104,6 +104,17 @@ test("costValue: a missing/negative estimateUsd makes the whole cost object abse
   assert.equal(Aggregate.costValue({ estimateUsd: "not a number" }), null)
 })
 
+test("costValue: preserves a declared partial-cost disclosure", () => {
+  const cost = Aggregate.costValue({
+    estimateUsd: 12, incomplete: true, unknownModels: ["codex-auto-review"],
+    pricedTokens: 900, unpricedTokens: 100
+  })
+  assert.equal(cost.incomplete, true)
+  assert.deepEqual(cost.unknownModels, ["codex-auto-review"])
+  assert.equal(cost.pricedTokens, 900)
+  assert.equal(cost.unpricedTokens, 100)
+})
+
 test("costValue: tolerates a bare estimateUsd with no byModel/byDay", () => {
   const cost = Aggregate.costValue({ estimateUsd: 5 })
   assert.equal(cost.estimateUsd, 5)

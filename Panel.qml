@@ -1283,7 +1283,8 @@ Panel {
 
                 Text {
                   id: costLabel
-                  text: "Est. API cost" + (root.cost && root.cost.period ? " (" + root.cost.period + ")" : "")
+                  text: "Est. API cost" + (root.cost && root.cost.incomplete ? " · partial" : "")
+                    + (root.cost && root.cost.period ? " (" + root.cost.period + ")" : "")
                   color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
@@ -1329,7 +1330,9 @@ Panel {
 
             Text {
               width: parent.width
-              text: "Derived estimate at published API rates — not a real bill."
+              text: root.cost && root.cost.incomplete
+                ? "Priced models only; " + (root.cost.unknownModels || []).join(", ") + " has no published API rate."
+                : "Derived estimate at published API rates — not a real bill."
               textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily

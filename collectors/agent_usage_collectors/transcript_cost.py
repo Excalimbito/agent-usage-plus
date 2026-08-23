@@ -60,10 +60,11 @@ def normalise_today_buckets(record: dict[str, Any]) -> None:
 
 
 def decorate(record: dict[str, Any], provider: str, period: str) -> dict[str, Any]:
-    """Add a complete, exact-price estimate, or leave cost absent.
+    """Add an API-rate estimate without disguising unpriced models.
 
-    The estimator rejects a partial total when a used transcript model is
-    unknown. The base record remains useful and authoritative in that case.
+    A transcript with priced models gets a clearly marked partial subtotal
+    when another model lacks an official rate. An all-unknown transcript still
+    omits the estimate rather than inventing $0.
     """
     normalise_today_buckets(record)
     helper = helper_path()

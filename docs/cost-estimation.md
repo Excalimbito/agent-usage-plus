@@ -15,8 +15,9 @@ const result = Cost.calculateCost({
   dailyModelUsage      // optional { "YYYY-MM-DD": { modelId: TokenBucket } }
 })
 
-if (result.cost) record.cost = result.cost
-else {
+if (result.cost) {
+  record.cost = result.cost // `incomplete` means the subtotal excludes unknown models
+} else {
   delete record.cost
   record.usageStatusText = "API cost estimate needs a price update"
   record.authHelpText = "No published API rate is catalogued for: " + result.unknownModels.join(", ")
@@ -33,9 +34,12 @@ printf '%s' "$input_json" | /path/to/agent-usage-plus/scripts/calculate-api-cost
 Parse the returned JSON; copy its `cost` to the record only when non-null,
 and handle `unknownModels` as above.
 
-The result is intentionally all-or-nothing. A collector must not label a
-partial subtotal as the user's estimated API cost. Store `pricingVersion`
-with the output so a cached record is auditable after prices change.
+If at least one model has an exact price, the result may be an explicitly
+marked partial subtotal: `cost.incomplete` is `true`, `unknownModels` names
+the excluded models, and the panel says so. If every used model is unknown,
+`cost` remains absent — never publish a fabricated `$0` estimate. Store
+`pricingVersion` with the output so a cached record is auditable after prices
+change.
 
 The catalogue uses standard, non-batch USD API rates per million tokens and
 is versioned in `logic/api-price-catalogue.js`. Update its version,

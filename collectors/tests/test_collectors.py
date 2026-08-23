@@ -144,7 +144,7 @@ class CollectorParsingTests(unittest.TestCase):
         }, "claude", "Local transcript history")
         self.assertEqual(record["cost"]["estimateUsd"], 14.7)
 
-    def test_transcript_cost_decorator_refuses_a_partial_unknown_model_total(self) -> None:
+    def test_transcript_cost_decorator_labels_a_partial_unknown_model_total(self) -> None:
         record = decorate({
             "id": "codex",
             "modelUsage": {
@@ -152,7 +152,8 @@ class CollectorParsingTests(unittest.TestCase):
                 "unpriced-model": {"outputTokens": 1},
             },
         }, "codex", "Local transcript history")
-        self.assertNotIn("cost", record)
+        self.assertTrue(record["cost"]["incomplete"])
+        self.assertEqual(record["cost"]["unknownModels"], ["unpriced-model"])
 
     def test_transcript_cost_decorator_upgrades_old_daily_scalar_totals(self) -> None:
         record = {"todayTokensByModel": {"model": 42}}

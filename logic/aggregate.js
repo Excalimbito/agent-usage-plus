@@ -166,6 +166,12 @@ function costValue(raw) {
     estimateUsd: estimateUsd,
     period: sanitizeDisplayText(raw.period, 20),
     pricingVersion: sanitizeDisplayText(raw.pricingVersion, 40),
+    incomplete: raw.incomplete === true,
+    unknownModels: Array.isArray(raw.unknownModels) ? raw.unknownModels.slice(0, 20).map(function(model) {
+      return sanitizeDisplayText(model, 80)
+    }).filter(function(model) { return !!model }) : [],
+    pricedTokens: numberValue(raw.pricedTokens),
+    unpricedTokens: numberValue(raw.unpricedTokens),
     byModel: byModel,
     byDay: byDay
   }
