@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # qmllint ships in Qt6's declarative dev tools. On Ubuntu runners the
+      # package is `qt6-declarative-dev-tools`, which installs the binary at
+      # /usr/lib/qt6/bin/qmllint (not on PATH by default).
+      #
+      # Quickshell itself (the `Quickshell` / `Quickshell.Io` QML modules,
+      # plus the Omarchy shell's own `qs.Commons` / `qs.Ui` modules that
+      # Panel.qml imports) is not packaged for Debian/Ubuntu and isn't
+      # installed here -- building it from source in CI is out of scope for
+      # this phase-0 tooling issue (see issue #3's "out of scope" section:
+      # no real Quickshell/compositor integration test). As a result qmllint
+      # cannot resolve those types in this job and would otherwise report a
+      # large cascade of type-resolution noise (unresolved imports, and the
+      # "unqualified access" / "missing-property" / "unresolved-type" /
+      # "inheritance-cycle" / "incompatible-type" warnings that follow from
+      # not knowing those types) that has nothing to do with real bugs in
+      # this repo. The `signal-handler-parameters` category is downgraded
+      # for the same reason: Quickshell's Process.exited signal exposes a
+      # QProcess::ExitStatus parameter that isn't registered for QML
+      # introspection, so any `onExited: function(exitCode) {...}` handler
+      # trips it even though the handler is correct.
+      #
+      # These categories are downgraded from "warning" to "info" (still
+      # printed, just non-fatal) rather than fixed/suppressed inline,
+      # because there isn't a real fix available without installing the
+      # full Quickshell runtime in CI. Straightforward QML/JS syntax errors
+      # (unbalanced braces, invalid tokens, malformed JS, etc.) are NOT part
+      # of this configurable category system and always fail the job.
+      - name: Install qmllint (qt6-declarative-dev-tools)
+        run: sudo apt-get update && sudo apt-get install -y qt6-declarative-dev-tools
+
+      - name: qmllint
+        run: |
+          /usr/lib/qt6/bin/qmllint \
+            --import=info \
+            --unqualified=info \
+            --missing-property=info \
+            --unresolved-type=info \
+            --inheritance-cycle=info \
+            --incompatible-type=info \
+            --signal-handler-parameters=info \
+            Agent.qml Main.qml Panel.qml
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      # boundedCommand() and startSyncScan() in Main.qml build their bash
+      # scripts as JS string concatenation rather than static files, so
+      # there's nothing on disk for shellcheck to read directly. Rather than
+      # restructure Main.qml to read scripts/*.sh at runtime (a bigger,
+      # riskier change to a file this issue isn't meant to refactor),
+      # scripts/extract-inline-shell.js reconstructs the exact same script
+      # text CI-side, by evaluating those two JS expressions with
+      # representative values for the numbers they interpolate (the real
+      # values are internal QML properties, not user input). See that
+      # script for details.
+      - name: Extract inline shell scripts from Main.qml
+        run: node scripts/extract-inline-shell.js /tmp/inline-shell
+
+      - name: shellcheck (inline scripts extracted from Main.qml)
+        run: shellcheck /tmp/inline-shell/bounded-command.sh /tmp/inline-shell/sync-scan.sh
+
+      - name: Validate manifest.json
+        run: |
+          jq empty manifest.json
+          ./scripts/check-manifest.sh manifest.json
+
+      # TODO: enable unconditionally once issue #02 lands and test/ always
+      # exists. Guarded for now because test/ doesn't exist on main yet.
+      - name: Run node --test test/ (if present)
+        run: |
+          if [ -d test ]; then
+            node --test test/
+          else
+            echo "no test/ dir yet, skipping (see issue #02)"
+          fi
