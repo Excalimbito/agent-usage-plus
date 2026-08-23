@@ -1586,7 +1586,7 @@ Panel {
 
           Column {
             id: expandedSection
-            visible: root.expanded
+            visible: false
             width: parent.width
             spacing: Style.spacing.md
 
