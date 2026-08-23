@@ -312,3 +312,54 @@ test("providerSnapshot: caps and sanitizes an oversized local record before it e
   assert.ok(Object.keys(snapshot.modelUsage).length <= 100)
   assert.ok(snapshot.activeDates.length <= 400)
 })
+
+// ------------------------------------------------------ barMode (issue #5)
+
+function providerWithPercent(id, percent) {
+  return { providerId: id, limits: [{ label: "Session", title: "Session", percent: percent, resetsAt: "" }] }
+}
+
+test("selectPrimaryProvider: no provider marked primary picks the highest usage percentage", () => {
+  const providers = [
+    providerWithPercent("claude", 0.2),
+    providerWithPercent("codex", 0.8),
+    providerWithPercent("fireworks", 0.5)
+  ]
+  const picked = Aggregate.selectPrimaryProvider(providers, { providers: {} })
+  assert.equal(picked.providerId, "codex")
+})
+
+test("selectPrimaryProvider: a provider marked primary wins regardless of percentage", () => {
+  const providers = [
+    providerWithPercent("claude", 0.2),
+    providerWithPercent("codex", 0.9),
+    providerWithPercent("fireworks", 0.5)
+  ]
+  const settings = { providers: { claude: { primary: true } } }
+  const picked = Aggregate.selectPrimaryProvider(providers, settings)
+  assert.equal(picked.providerId, "claude")
+})
+
+test("selectPrimaryProvider: an empty list returns null", () => {
+  assert.equal(Aggregate.selectPrimaryProvider([], { providers: {} }), null)
+  assert.equal(Aggregate.selectPrimaryProvider(null, { providers: {} }), null)
+})
+
+test("selectPrimaryProvider: a single-provider list returns that provider even with no usage data", () => {
+  const only = { providerId: "claude", limits: [] }
+  const picked = Aggregate.selectPrimaryProvider([only], { providers: {} })
+  assert.equal(picked.providerId, "claude")
+})
+
+test("providerUsagePercent: prefers a window titled Session, falls back to the first window, then balance", () => {
+  const sessionFirst = { limits: [{ title: "Weekly", percent: 0.9 }, { title: "Session", percent: 0.3 }] }
+  assert.equal(Aggregate.providerUsagePercent(sessionFirst), 0.3)
+
+  const noSession = { limits: [{ title: "Weekly", percent: 0.6 }] }
+  assert.equal(Aggregate.providerUsagePercent(noSession), 0.6)
+
+  const balanceOnly = { limits: [], balance: { remaining: 25, funded: 100 } }
+  assert.equal(Aggregate.providerUsagePercent(balanceOnly), 0.75)
+
+  assert.equal(Aggregate.providerUsagePercent({ limits: [] }), -1)
+})

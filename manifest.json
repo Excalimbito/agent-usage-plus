@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.viganogabriele.agent-usage-plus",
   "name": "Agent Usage Plus",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "author": "Gabriele Vigano",
   "license": "MIT",
   "description": "Claude Code, Codex, and Fireworks usage, limits, and pace in a native Omarchy bar panel.",
@@ -27,17 +27,22 @@
       "providers": {
         "claude": {
           "enabled": true,
-          "showInBar": true
+          "showInBar": true,
+          "primary": false
         },
         "codex": {
           "enabled": true,
-          "showInBar": true
+          "showInBar": true,
+          "primary": false
         },
         "fireworks": {
           "enabled": true,
-          "showInBar": true
+          "showInBar": true,
+          "primary": false
         }
       },
+      "barMode": "all",
+      "barCycleIntervalSec": 8,
       "refreshIntervalSec": 900,
       "syncMode": "Off",
       "syncDir": "",
@@ -47,6 +52,28 @@
       "criticalThresholdPct": 90
     },
     "schema": [
+      {
+        "key": "barMode",
+        "type": "enum",
+        "label": "Bar display mode",
+        "options": [
+          "all",
+          "primary",
+          "cycle"
+        ],
+        "defaultValue": "all",
+        "description": "all: one meter per provider shown in the bar. primary: one meter for the provider marked primary (or the fullest one). cycle: one meter, rotating automatically every barCycleIntervalSec."
+      },
+      {
+        "key": "barCycleIntervalSec",
+        "type": "integer",
+        "label": "Cycle interval (seconds)",
+        "min": 3,
+        "max": 120,
+        "step": 1,
+        "defaultValue": 8,
+        "description": "Only used when barMode is cycle."
+      },
       {
         "key": "refreshIntervalSec",
         "type": "integer",

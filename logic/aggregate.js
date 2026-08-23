@@ -434,6 +434,64 @@ function selectBarProviders(providers, settings) {
   })
 }
 
+// A pure, provider-selection-only approximation of Panel.qml's
+// providerPercent() (issue #5's `barMode: "primary"`). Panel.qml's version
+// is the source of truth for what a bar meter actually *displays* — it
+// prefers a window titled "Session" (falling back to whatever windowTitle()
+// infers from the label's wording, which depends on QML-side helpers this
+// file intentionally has no access to), then falls back to a balance-based
+// fraction. This mirrors just the parts knowable from the sanitized
+// `limits`/`balance` fields alone: a window whose own title/label already
+// says "session" wins, otherwise the first reported window with a valid
+// percent, otherwise the balance-used fraction, otherwise -1 (no data).
+// Good enough to rank providers by "how full is it"; never used for display.
+function providerUsagePercent(p) {
+  var limits = p && Array.isArray(p.limits) ? p.limits : []
+  var firstPercent = -1
+  var sessionPercent = -1
+  for (var i = 0; i < limits.length; i++) {
+    var entry = limits[i] || {}
+    var percent = Number(entry.percent)
+    if (!(percent >= 0)) continue
+    if (firstPercent < 0) firstPercent = percent
+    var title = String(entry.title || entry.label || "").toLowerCase()
+    if (sessionPercent < 0 && title.indexOf("session") >= 0) sessionPercent = percent
+  }
+  if (sessionPercent >= 0) return sessionPercent
+  if (firstPercent >= 0) return firstPercent
+  if (p && p.balance && p.balance.funded > 0) return 1 - Number(p.balance.remaining) / Number(p.balance.funded)
+  return -1
+}
+
+// `barMode: "primary"` (issue #5): picks exactly one provider out of an
+// already-`selectBarProviders`-filtered list. A provider explicitly marked
+// `primary: true` in its own settings entry always wins, regardless of
+// usage; with no such provider, the one with the highest current usage
+// percentage (providerUsagePercent above) wins; ties keep the first (list
+// order, same order the bar itself would otherwise render them in). Returns
+// null for an empty list so callers can turn that into an empty
+// `barProviders` array without a special case.
+function selectPrimaryProvider(providers, settings) {
+  var list = Array.isArray(providers) ? providers : []
+  if (list.length === 0) return null
+  var providerSettings = settings && settings.providers ? settings.providers : {}
+  for (var i = 0; i < list.length; i++) {
+    var id = list[i] && list[i].providerId
+    var cfg = id && providerSettings[id] ? providerSettings[id] : {}
+    if (cfg.primary === true) return list[i]
+  }
+  var best = list[0]
+  var bestPercent = providerUsagePercent(best)
+  for (var j = 1; j < list.length; j++) {
+    var percent = providerUsagePercent(list[j])
+    if (percent > bestPercent) {
+      best = list[j]
+      bestPercent = percent
+    }
+  }
+  return best
+}
+
 // All-time keeps a quiet day from hiding an agent; today's counts admit a
 // machine whose only source is history.jsonl, which knows nothing older.
 function providerHasData(p) {
@@ -465,6 +523,8 @@ if (typeof module !== "undefined" && module.exports) {
     buildLocalSnapshot: buildLocalSnapshot,
     mergeProviderDisplay: mergeProviderDisplay,
     selectBarProviders: selectBarProviders,
+    providerUsagePercent: providerUsagePercent,
+    selectPrimaryProvider: selectPrimaryProvider,
     providerHasData: providerHasData
   }
 }

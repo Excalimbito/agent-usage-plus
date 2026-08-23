@@ -113,6 +113,14 @@ Panel {
     return !providers[id] || providers[id].showInBar !== false
   }
 
+  // Unlike enabled/showInBar, `primary` defaults to false/unset — only used
+  // by `barMode: "primary"` (issue #5), and only one provider's toggle
+  // should ever read true at a time (see usage.setProviderPrimary()).
+  function providerSettingPrimary(id) {
+    var providers = usage.settings && usage.settings.providers ? usage.settings.providers : {}
+    return !!(providers[id] && providers[id].primary === true)
+  }
+
   // One row per provider this machine knows about, whether or not it is
   // currently enabled — `usage.agents` covers every discovered usage record
   // regardless of the `enabled` setting (only `enabledProviders` filters that
@@ -135,7 +143,8 @@ Panel {
         providerId: id,
         providerName: String(record.name || record.id),
         enabled: providerSettingEnabled(id),
-        showInBar: providerSettingShowInBar(id)
+        showInBar: providerSettingShowInBar(id),
+        primary: providerSettingPrimary(id)
       })
     }
     var configured = usage.settings && usage.settings.providers ? usage.settings.providers : {}
@@ -146,7 +155,8 @@ Panel {
         providerId: pid,
         providerName: pid,
         enabled: providerSettingEnabled(pid),
-        showInBar: providerSettingShowInBar(pid)
+        showInBar: providerSettingShowInBar(pid),
+        primary: providerSettingPrimary(pid)
       })
     }
     rows.sort(function(a, b) { return a.providerId < b.providerId ? -1 : (a.providerId > b.providerId ? 1 : 0) })
@@ -658,7 +668,14 @@ Panel {
     active: root.alarming
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.RightButton) root.launchAgent()
-      else if (buttonCode === Qt.MiddleButton) root.selectProvider(root.providerIndex + 1)
+      // In "cycle" mode, middle-click manually advances which single
+      // provider the BAR shows (usage.cycleNext(), a new index — see
+      // Main.qml) instead of the panel's own chip-selection index; the two
+      // are deliberately kept separate (see barCycleIndex's comment).
+      else if (buttonCode === Qt.MiddleButton) {
+        if (usage.barMode === "cycle") usage.cycleNext()
+        else root.selectProvider(root.providerIndex + 1)
+      }
       else root.toggle()
     }
   }
@@ -728,7 +745,10 @@ Panel {
           labelVisible: false
           onPressed: function(buttonCode) {
             if (buttonCode === Qt.RightButton) root.launchAgent()
-            else if (buttonCode === Qt.MiddleButton) root.selectProvider(root.providerIndex + 1)
+            else if (buttonCode === Qt.MiddleButton) {
+              if (usage.barMode === "cycle") usage.cycleNext()
+              else root.selectProvider(root.providerIndex + 1)
+            }
             else root.openProvider(providerGroup.modelData)
           }
         }
@@ -1260,6 +1280,34 @@ Panel {
                         font.pixelSize: Style.font.caption
                       }
                     }
+
+                    // Only meaningful under `barMode: "primary"` (issue #5),
+                    // but left clickable regardless of the current
+                    // `barMode` — flipping it now, then switching `barMode`
+                    // to "primary" later, should already reflect the choice
+                    // rather than requiring the toggle to be re-set.
+                    Row {
+                      spacing: Style.space(6)
+                      enabled: providerSettingsRow.modelData.enabled
+                      opacity: providerSettingsRow.modelData.enabled ? 1.0 : 0.45
+
+                      ToggleSwitch {
+                        id: primarySwitch
+                        anchors.verticalCenter: parent.verticalCenter
+                        checked: providerSettingsRow.modelData.primary
+                        foreground: root.foreground
+                        accent: Color.accent
+                        onToggled: usage.setProviderPrimary(providerSettingsRow.modelData.providerId, !providerSettingsRow.modelData.primary)
+                      }
+
+                      Text {
+                        text: "Primary"
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                    }
                   }
                 }
               }
@@ -1272,6 +1320,69 @@ Panel {
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
               }
+            }
+
+            // ----- Bar display mode (issue #5) -----
+            Column {
+              width: parent.width
+              spacing: Style.space(6)
+
+              Text {
+                text: "Bar display"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+              }
+
+              Row {
+                id: barModeSwitch
+                width: parent.width
+                spacing: Style.spacing.md
+
+                readonly property var options: ["all", "primary", "cycle"]
+                readonly property var optionLabels: ({ all: "All", primary: "Primary", cycle: "Cycle" })
+                readonly property real cellWidth: (width - spacing * (options.length - 1)) / options.length
+
+                Repeater {
+                  model: barModeSwitch.options
+
+                  Button {
+                    required property var modelData
+                    width: barModeSwitch.cellWidth
+                    text: barModeSwitch.optionLabels[modelData]
+                    selected: usage.barMode === modelData
+                    bordered: true
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.bodySmall
+                    verticalPadding: Style.spacing.controlPaddingY
+                    onClicked: usage.setBarMode(modelData)
+                  }
+                }
+              }
+
+              Text {
+                width: parent.width
+                text: "All: one meter per provider shown in the bar. Primary: one meter — the provider marked Primary above, or the fullest one. Cycle: one meter, rotating automatically."
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
+              }
+            }
+
+            // ----- Cycle interval (only meaningful in Cycle mode) -----
+            NumberField {
+              visible: usage.barMode === "cycle"
+              label: "Cycle interval (seconds)"
+              value: usage.barCycleIntervalSec
+              from: 3
+              to: 120
+              stepSize: 1
+              foreground: root.foreground
+              accent: Color.accent
+              fontFamily: root.fontFamily
+              onModified: function(v) { usage.setBarCycleIntervalSec(v) }
             }
 
             // ----- Refresh interval -----

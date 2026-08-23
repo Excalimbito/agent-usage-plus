@@ -274,7 +274,78 @@ Item {
   // list the panel's chip switcher uses, further narrowed by `showInBar`
   // (see logic/aggregate.js). The panel keeps using enabledProviders
   // directly so a provider with `showInBar: false` stays selectable there.
-  property var barProviders: Aggregate.selectBarProviders(enabledProviders, settings)
+  //
+  // `barMode` (issue #5) only changes how many of those get a bar slot, not
+  // which ones are eligible in the first place — `showInBarList` below is
+  // always the same "enabled and showInBar" set `selectBarProviders`
+  // already produced for the "all" case:
+  //   - "all": every eligible provider gets a meter (today's behavior).
+  //   - "primary": exactly one, chosen by Aggregate.selectPrimaryProvider.
+  //   - "cycle": exactly one, chosen by `barCycleIndex` below and rotated
+  //     by cycleTimer / cycleNext(). `barCycleIndex` is intentionally a
+  //     separate property from Panel.qml's `providerIndex` (which tab the
+  //     panel has open) — one is "what does the BAR show", the other is
+  //     "what does the PANEL have open"; conflating them would make
+  //     clicking through panel tabs also change what the bar cycles to.
+  readonly property string barMode: {
+    var v = setting("barMode", "all")
+    return (v === "primary" || v === "cycle") ? v : "all"
+  }
+  readonly property int barCycleIntervalSec: {
+    var v = Number(setting("barCycleIntervalSec", 8))
+    if (!isFinite(v)) v = 8
+    return Math.max(3, Math.min(120, Math.round(v)))
+  }
+  // Only meaningful in "cycle" mode; wraps against whatever
+  // `showInBarList` currently contains, so a provider disappearing (or the
+  // list shrinking) never leaves it pointing past the end.
+  property int barCycleIndex: 0
+
+  readonly property var showInBarList: Aggregate.selectBarProviders(enabledProviders, settings)
+
+  property var barProviders: {
+    var list = root.showInBarList
+    if (root.barMode === "primary") {
+      var primary = Aggregate.selectPrimaryProvider(list, settings)
+      return primary ? [primary] : []
+    }
+    if (root.barMode === "cycle") {
+      if (list.length === 0) return []
+      var idx = ((root.barCycleIndex % list.length) + list.length) % list.length
+      return [list[idx]]
+    }
+    return list
+  }
+
+  // Automatic rotation for `barMode: "cycle"`. Manual advances (cycleNext(),
+  // wired to the bar's middle-click in cycle mode — see Panel.qml) call
+  // advanceCycle() and then restart this timer, so a manual click and the
+  // next automatic tick don't double-skip a provider: the next automatic
+  // tick always lands `barCycleIntervalSec` after whichever advance
+  // (manual or automatic) happened most recently, not on a fixed
+  // wall-clock schedule from when the timer first started.
+  Timer {
+    id: cycleTimer
+    interval: root.barCycleIntervalSec * 1000
+    running: root.barMode === "cycle" && root.showInBarList.length > 1
+    repeat: true
+    onTriggered: root.advanceCycle()
+  }
+
+  function advanceCycle() {
+    var list = root.showInBarList
+    if (list.length === 0) return
+    root.barCycleIndex = (root.barCycleIndex + 1) % list.length
+  }
+
+  // The manual "cycle to next provider" action: advances immediately, then
+  // restarts the timer so the next automatic tick waits a full interval
+  // from *this* advance rather than from whenever the timer last fired.
+  function cycleNext() {
+    advanceCycle()
+    cycleTimer.stop()
+    cycleTimer.start()
+  }
 
   // Merges one usage record with its synced counterpart (if any) into the
   // per-provider object the panel renders — see logic/aggregate.js for the
@@ -376,6 +447,37 @@ Item {
 
   function setProviderEnabled(id, value) { setProviderField(id, "enabled", !!value) }
   function setProviderShowInBar(id, value) { setProviderField(id, "showInBar", !!value) }
+
+  // `primary` behaves like a radio button, not an independent toggle:
+  // `barMode: "primary"` only reads the *first* provider marked
+  // `primary: true` (see Aggregate.selectPrimaryProvider), so leaving a
+  // stale `true` on a previously-primary provider would silently do
+  // nothing until someone noticed the wrong meter never changed. Turning
+  // one provider's `primary` on clears it from every other provider in the
+  // same write; turning it off just clears that one provider.
+  function setProviderPrimary(id, value) {
+    if (String(id || "") === "") return
+    var providers = {}
+    var current = settings && settings.providers ? settings.providers : {}
+    for (var pid in current) providers[pid] = Object.assign({}, current[pid])
+    if (!!value) {
+      for (var otherId in providers) providers[otherId].primary = (otherId === id)
+      if (!providers[id]) providers[id] = { primary: true }
+    } else {
+      if (!providers[id]) providers[id] = {}
+      providers[id].primary = false
+    }
+    writeSetting("providers", JSON.stringify(providers))
+  }
+
+  function setBarMode(value) {
+    var v = (value === "primary" || value === "cycle") ? value : "all"
+    writeSetting("barMode", JSON.stringify(v))
+  }
+
+  function setBarCycleIntervalSec(value) {
+    writeSetting("barCycleIntervalSec", String(Math.max(3, Math.min(120, Math.round(Number(value))))))
+  }
 
   // ------------------------------------------------------------------ sync
 
