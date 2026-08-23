@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.viganogabriele.agent-usage-plus",
   "name": "Agent Usage Plus",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "author": "Gabriele Vigano",
   "license": "MIT",
   "description": "Claude Code, Codex, and Fireworks usage, limits, and pace in a native Omarchy bar panel.",
@@ -44,7 +44,8 @@
       "syncFileName": "",
       "syncDeviceId": "",
       "warnThresholdPct": 75,
-      "criticalThresholdPct": 90
+      "criticalThresholdPct": 90,
+      "historyDays": 30
     },
     "schema": [
       {
@@ -107,6 +108,16 @@
         "step": 1,
         "defaultValue": 90,
         "description": "Usage percentage at which meters switch to the critical (urgent) color."
+      },
+      {
+        "key": "historyDays",
+        "type": "integer",
+        "label": "History window (days)",
+        "min": 7,
+        "max": 90,
+        "step": 1,
+        "defaultValue": 30,
+        "description": "Documents how much daily history a collector is expected to report in recentDays; the panel never fetches more than what's already in a record. See docs/collector-contract.md."
       }
     ]
   },

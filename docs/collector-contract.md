@@ -73,7 +73,7 @@ report for it right now" — not "no one should bother."
 | `todaySessions` | integer | no | Number of distinct sessions today. |
 | `todayTotalTokens` | integer | no | Total tokens (input + output + cache, however your provider buckets them) consumed today. |
 | `todayTokensByModel` | object: `{ "<modelId>": integer }` | no | Today's token total per model id — a flat number per model, **not** the same shape as `modelUsage` (see below). Capped at 100 distinct model ids; extra ones are dropped. |
-| `recentDays` | array of `{ "date": "YYYY-MM-DD", "messageCount": integer }` | no | One entry per day, meant to cover the trailing week (7 entries), oldest first, ending on today. Despite the field's name, `messageCount` is a **token total for that day**, not a count of messages — this is a legacy name kept for compatibility with older snapshots and must not be reinterpreted. Capped at 31 entries. |
+| `recentDays` | array of `{ "date": "YYYY-MM-DD", "messageCount": integer }` | no | One entry per day, oldest first, ending on today. Despite the field's name, `messageCount` is a **token total for that day**, not a count of messages — this is a legacy name kept for compatibility with older snapshots and must not be reinterpreted. Capped at 31 entries; see `historyDays` below for how many of those entries a collector should actually try to fill. |
 | `totalPrompts` | integer | no | All-time (or as-far-back-as-your-source-goes) prompt count. |
 | `totalSessions` | integer | no | All-time session count. |
 | `activeDays` | integer | no | Count of distinct days with any activity. |
@@ -225,13 +225,26 @@ unremarkable state.
 Everything in `manifest.json`'s `providers.<id>` settings block —
 `enabled`, and (as they land) per-provider flags like `showInBar` or
 `primary` — is configuration the *user* sets for the widget, not something
-a collector writes into its own record. As of this writing, none of the
-in-flight display/settings work (per-provider bar visibility, bar display
-modes, warning/critical color thresholds, the expandable panel view, or the
-in-panel settings editor) changes what a collector is expected to report —
-they all operate purely on the record shape documented above. If a future
-change does add a collector-facing field for one of those, it'll be added
-to the tables above rather than requiring a second contract document.
+a collector writes into its own record. Most of the display/settings work
+(per-provider bar visibility, bar display modes, warning/critical color
+thresholds, the expandable panel view, or the in-panel settings editor)
+changes nothing about what a collector is expected to report — it all
+operates purely on the record shape documented above. If a future change
+does add a collector-facing field for one of those, it'll be added to the
+tables above rather than requiring a second contract document.
+
+The one exception so far is `historyDays` (manifest schema, default `30`,
+range 7-90): it is a *hint to collector authors*, not something the panel
+enforces or fetches on its own. The panel only ever reads whatever is
+already sitting in a record's `recentDays` array (capped at 31 entries —
+see above) and lets the panel's history chart's range selector (24h / 7d /
+30d / 90d) re-slice that in-memory data; it never asks a collector for more
+history than the record already contains, and picking a range longer than
+what's actually present shows an explicit "not available" message rather
+than a chart that implies data that was never collected. `historyDays`
+exists purely so a collector author knows roughly how many days of
+`recentDays` history is worth writing to make the panel's longer range
+selections (30d, 90d) actually render a chart instead of that message.
 
 ## Minimal valid example
 
