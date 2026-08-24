@@ -621,7 +621,14 @@ Panel {
   readonly property var providerIconAssets: ({
     claude: { defaultAsset: "claude.svg" },
     codex: { defaultAsset: "codex.svg", lightAsset: "codex-light.svg" },
-    fireworks: { defaultAsset: "fireworks.svg" }
+    fireworks: { defaultAsset: "fireworks.svg" },
+    openrouter: { defaultAsset: "openrouter.svg", lightAsset: "openrouter-light.svg" },
+    deepseek: { defaultAsset: "deepseek.svg" },
+    gemini: { defaultAsset: "gemini.svg", lightAsset: "gemini-light.svg" },
+    cursor: { defaultAsset: "cursor.svg", lightAsset: "cursor-light.svg" },
+    kimi: { defaultAsset: "kimi.svg", lightAsset: "kimi-light.svg" },
+    xai: { defaultAsset: "xai.svg", lightAsset: "xai-light.svg" },
+    zai: { defaultAsset: "zai.svg", lightAsset: "zai-light.svg" }
   })
 
   // Known marks resolve through the registry above; everything else falls

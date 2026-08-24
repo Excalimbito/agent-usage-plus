@@ -12,7 +12,7 @@ the panel already watches.
 | OpenRouter | current API key's optional spending limit, remaining budget, and usage from `GET /api/v1/auth/key` | `OPENROUTER_API_KEY` or `collectors.json` entry; otherwise **Waiting for API key** tells the user exactly how to set one |
 | DeepSeek | account's available credit ledger from `GET /user/balance` | `DEEPSEEK_API_KEY` or `collectors.json` entry; otherwise **Waiting for API key** tells the user exactly how to set one |
 | xAI / Grok | team's authoritative prepaid API-credit balance from xAI's Management API | `XAI_MANAGEMENT_API_KEY` (not an inference `XAI_API_KEY`); team-scoped keys discover the team automatically, organization keys also need `XAI_TEAM_ID` |
-| Z.AI / GLM | **No meter is published**: Z.AI currently has no documented account quota/balance/usage endpoint for API keys or Coding Plan subscriptions | `ZAI_API_KEY`/`ZHIPUAI_API_KEY` or config is detected and produces a clear status card; no key produces an exact setup instruction |
+| Z.AI / GLM | Coding Plan quota windows from the read-only monitor endpoint (`/api/monitor/usage/quota/limit`), with global and China-region hosts and optional team scope | `Z_AI_API_KEY`/`ZAI_API_KEY` or a China-region alias (`BIGMODEL_API_KEY`, `ZHIPU_API_KEY`, `ZHIPUAI_API_KEY`, `GLM_API_KEY`); missing key, invalid region/scope, missing team selectors, rejected key, and endpoint failures are separate visible states |
 | Gemini | Gemini CLI's Code Assist model quota buckets from `cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota` | Gemini CLI Google sign-in credentials in `~/.gemini/oauth_creds.json`, or an explicit short-lived `GEMINI_ACCESS_TOKEN`; otherwise **Waiting for Gemini sign-in** explains the required Google-login flow |
 | Cursor | personal subscription pools from Cursor dashboard's `GET /api/usage-summary`, using the locally signed-in Cursor IDE or `cursor-agent` session | Cursor IDE/cursor-agent sign-in; otherwise **Waiting for Cursor sign-in** tells the user to sign in locally. Team accounts without a per-user meter report a clear unavailable status rather than an invented percentage |
 | Kimi | weekly Coding Plan quota and any 5-hour rolling window from `GET /coding/v1/usages` | `KIMI_API_KEY` or `collectors.json` entry; otherwise **Waiting for API key** gives the exact setup path |
@@ -117,7 +117,7 @@ available, create this **mode 600** file instead:
   "openrouter": { "apiKey": "…" },
   "deepseek": { "apiKey": "…" },
   "xai": { "managementKey": "…", "teamId": "optional-team-id" },
-  "zai": { "apiKey": "…" },
+  "zai": { "apiKey": "…", "region": "global", "usageScope": "personal" },
   "kimi": { "apiKey": "…" }
 }
 ```
@@ -153,20 +153,23 @@ and [xAI Billing Management reference](https://docs.x.ai/developers/rest-api-ref
 
 ### Z.AI / GLM details
 
-Z.AI documents Bearer API-key authentication, the Coding Plan's dedicated
-endpoint, and a five-hour quota cycle, but does **not** document a supported
-endpoint for an account's remaining API balance, Coding Plan quota, or usage
-history. This package will not scrape the authenticated web console or issue
-a paid model request merely to guess. It writes a visible status record so a
-configured user sees why no meter exists, and a missing user gets exact key
-setup instructions; neither case reports a fake zero meter. This is a real
-provider integration boundary, not a claim that the panel can measure a value
-Z.AI does not expose. References: [Z.AI API authentication](https://docs.z.ai/api-reference/introduction),
-[Coding Plan FAQ](https://docs.z.ai/devpack/faq), and [Usage Policy](https://docs.z.ai/devpack/usage-policy).
+The collector uses the read-only quota endpoint used by supported Z.AI
+coding-tool integrations. Global keys use `api.z.ai`; China-region keys use
+`open.bigmodel.cn`. Set `Z_AI_REGION=bigmodel-cn` for the China host. The
+personal response is mapped to its shortest and longest token/credit windows;
+an optional MCP time limit is shown separately. Team scope appends `type=2`
+and requires both `Z_AI_ORGANIZATION` and `Z_AI_PROJECT`, because the provider
+returns an empty successful response when either selector is missing.
+
+The collector never scrapes the console or makes a paid model request. An
+unfamiliar response is reported as unavailable instead of becoming a fake
+zero meter. References: [Z.AI API authentication](https://docs.z.ai/api-reference/introduction),
+[Coding Plan FAQ](https://docs.z.ai/devpack/faq), [Usage Policy](https://docs.z.ai/devpack/usage-policy),
+and the read-only quota integration documented by [CodexBar](https://github.com/steipete/CodexBar/blob/main/docs/zai.md).
 
 ## Endpoint stability and provider coverage
 
-OpenRouter and DeepSeek are documented provider APIs. Gemini's Code Assist
+OpenRouter, DeepSeek, and Z.AI's quota route are provider APIs. Gemini's Code Assist
 quota RPC is called by the [official Gemini CLI source](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/code_assist/server.ts),
 but is not a public API contract. Cursor's `usage-summary` route is the
 dashboard's own undocumented endpoint, and Kimi's Coding Plan route is

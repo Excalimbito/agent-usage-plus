@@ -198,7 +198,7 @@ propose a new icon, and the PR checklist.
 | `cursor` *(companion package)* | Cursor plan/session allowance when locally available | Local Cursor agent usage where available |
 | `kimi` *(companion package)* | Kimi API quota window | Kimi account endpoint |
 | `xai` *(companion package)* | xAI API credit balance | xAI management API |
-| `zai` *(companion package)* | Clear credential/status state; Z.AI does not publish a compatible live meter | — |
+| `zai` *(companion package)* | GLM Coding Plan quota windows from the read-only Z.AI monitor endpoint | Z.AI API key aliases, with optional global/China region and team selectors |
 
 Claude limits need a signed-in CLI; without credentials the panel says so and
 falls back to local stats only. A non-default Claude directory is honored via

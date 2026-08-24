@@ -31,22 +31,23 @@ Icons currently shipped:
 | `claude` | `claude.svg` |
 | `codex` | `codex.svg`, `codex-light.svg` |
 | `fireworks` | `fireworks.svg` |
+| `openrouter` | `openrouter.svg`, `openrouter-light.svg` |
+| `deepseek` | `deepseek.svg` |
+| `gemini` | `gemini.svg`, `gemini-light.svg` |
+| `cursor` | `cursor.svg`, `cursor-light.svg` |
+| `kimi` | `kimi.svg`, `kimi-light.svg` |
+| `xai` | `xai.svg`, `xai-light.svg` |
+| `zai` | `zai.svg`, `zai-light.svg` |
 
-The supported companion package includes these providers but deliberately
-ships no icon for them yet. They use the panel's text-initial fallback with
-no failed image request or runtime warning:
+All currently supported providers have a registered mark. A future provider
+can still use the text-initial fallback, but its asset and exact registry
+entry should land together; see [`CONTRIBUTING.md`](../CONTRIBUTING.md#proposing-a-new-icon).
 
-- `openrouter`
-- `zai`
-- `deepseek`
-- `gemini`
-- `cursor`
-- `kimi`
-- `xai`
-
-If you're adding an icon for one of these (or any other provider), add the
-SVG file(s) and the exact filename to `Panel.qml`'s registry in the same PR;
-see [`CONTRIBUTING.md`](../CONTRIBUTING.md#proposing-a-new-icon).
+The monochrome marks include dark-surface and light-surface variants. They are
+static SVG paths with no external references, so QML can render them locally
+without a network request or a missing-image warning. Provider marks were
+adapted from the MIT-licensed CodexBar resource set; see
+[`assets/NOTICE.md`](NOTICE.md) for attribution.
 
 ## SVG guidelines
 

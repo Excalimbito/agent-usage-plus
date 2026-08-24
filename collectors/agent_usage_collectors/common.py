@@ -143,6 +143,39 @@ def find_key(env_name: str, config_provider: str, setting_name: str = "apiKey") 
         return None
 
 
+def find_any_key(
+    env_names: tuple[str, ...] | list[str],
+    config_provider: str,
+    setting_names: tuple[str, ...] | list[str] = ("apiKey",),
+) -> str | None:
+    """Find the first supported credential alias without exposing its value.
+
+    Some providers have regional or legacy environment names.  Keeping the
+    aliases in one helper makes their precedence explicit and preserves the
+    same mode-600, collector-owned config-file rule as :func:`find_key`.
+    """
+    for env_name in env_names:
+        value = os.environ.get(env_name, "").strip()
+        if value:
+            return value
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
+    path = config_home / "omarchy" / "agent-usage-plus" / "collectors.json"
+    try:
+        if path.stat().st_mode & 0o077:
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        provider = data.get(config_provider, {}) if isinstance(data, dict) else {}
+        if not isinstance(provider, dict):
+            return None
+        for setting_name in setting_names:
+            candidate = provider.get(setting_name)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+    except (OSError, ValueError, AttributeError):
+        return None
+    return None
+
+
 def find_setting(env_name: str, config_provider: str, setting_name: str) -> str | None:
     """Return a non-secret companion-collector setting from the opt-in config.
 
