@@ -68,6 +68,7 @@
       },
       "barMode": "all",
       "barCycleIntervalSec": 8,
+      "barCycleSlots": 1,
       "refreshIntervalSec": 900,
       "syncMode": "Off",
       "syncDir": "",
@@ -98,6 +99,16 @@
         "step": 1,
         "defaultValue": 8,
         "description": "Only used when barMode is cycle."
+      },
+      {
+        "key": "barCycleSlots",
+        "type": "integer",
+        "label": "Rotating bar slots",
+        "min": 0,
+        "max": 3,
+        "step": 1,
+        "defaultValue": 1,
+        "description": "How many providers rotate at once in cycle mode. Providers marked fixed stay visible."
       },
       {
         "key": "refreshIntervalSec",

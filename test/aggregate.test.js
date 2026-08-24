@@ -411,6 +411,68 @@ test("providerSnapshot: caps and sanitizes an oversized local record before it e
 
 // ------------------------------------------------------ barMode (issue #5)
 
+function providerList(...ids) {
+  return ids.map((id) => ({ providerId: id, limits: [] }))
+}
+
+test("selectBarLayout: All mode keeps eligible providers and ignores cycle roles", () => {
+  const providers = providerList("claude", "codex", "fireworks", "gemini")
+  const settings = {
+    providers: {
+      claude: { barRole: "fixed", showInBar: true },
+      codex: { barRole: "cycle", showInBar: true },
+      fireworks: { showInBar: false }
+    }
+  }
+  const layout = Aggregate.selectBarLayout(providers, settings, "all", 0, 2, 3)
+  assert.deepEqual(layout.providers.map((p) => p.providerId), ["claude", "codex", "gemini"])
+  assert.deepEqual(layout.cycling, [])
+})
+
+test("selectBarLayout: explicit roles combine fixed and two rotating slots", () => {
+  const providers = providerList("claude", "codex", "fireworks", "gemini")
+  const settings = {
+    providers: {
+      claude: { barRole: "fixed", showInBar: true },
+      codex: { barRole: "cycle", showInBar: true },
+      fireworks: { barRole: "cycle", showInBar: true },
+      gemini: { barRole: "cycle", showInBar: true }
+    }
+  }
+  const first = Aggregate.selectBarLayout(providers, settings, "cycle", 0, 2, 3)
+  assert.deepEqual(first.providers.map((p) => p.providerId), ["claude", "codex", "fireworks"])
+  assert.deepEqual(first.cycling.map((p) => p.providerId), ["codex", "fireworks", "gemini"])
+  assert.equal(first.cycleSlots, 2)
+
+  const next = Aggregate.selectBarLayout(providers, settings, "cycle", 1, 2, 3)
+  assert.deepEqual(next.providers.map((p) => p.providerId), ["claude", "fireworks", "gemini"])
+})
+
+test("selectBarLayout: old cycle configurations rotate every showInBar provider", () => {
+  const providers = providerList("claude", "codex", "fireworks")
+  const settings = { providers: {
+    claude: { showInBar: true },
+    codex: { showInBar: true },
+    fireworks: { showInBar: false }
+  } }
+  const layout = Aggregate.selectBarLayout(providers, settings, "cycle", 1, 1, 3)
+  assert.deepEqual(layout.providers.map((p) => p.providerId), ["codex"])
+  assert.equal(layout.legacy, true)
+})
+
+test("selectBarLayout: fixed providers consume slots before rotating providers", () => {
+  const providers = providerList("claude", "codex", "fireworks", "gemini")
+  const settings = { providers: {
+    claude: { barRole: "fixed", showInBar: true },
+    codex: { barRole: "fixed", showInBar: true },
+    fireworks: { barRole: "cycle", showInBar: true },
+    gemini: { barRole: "cycle", showInBar: true }
+  } }
+  const layout = Aggregate.selectBarLayout(providers, settings, "cycle", 0, 3, 3)
+  assert.deepEqual(layout.providers.map((p) => p.providerId), ["claude", "codex", "fireworks"])
+  assert.equal(layout.cycleSlots, 1)
+})
+
 function providerWithPercent(id, percent) {
   return { providerId: id, limits: [{ label: "Session", title: "Session", percent: percent, resetsAt: "" }] }
 }

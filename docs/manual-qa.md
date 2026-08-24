@@ -8,7 +8,10 @@ Automated tests cover extracted logic and record validation. They cannot show cl
 
 - [ ] With one, two, and three enabled providers that have data and `showInBar: true`, each meter has a readable mark, meter, and percentage. A provider with a weekly limit also has the small weekly tick.
 - [ ] With four or more eligible providers in `barMode: "all"`, the bar shows at most three full meter groups followed by a `+N` indicator. Hovering it explains that the remaining subscriptions are in the panel; clicking it opens the full provider list rather than creating an inert gap.
-- [ ] In `barMode: "cycle"`, one meter rotates at the configured interval. Middle-click advances it immediately and the next automatic change waits a full interval. Middle-click must not change the panel's selected tab.
+- [ ] In `barMode: "cycle"`, verify Off, Fixed, and Cycle roles. Fixed providers
+  stay visible while the configured number of rotating slots advances at the
+  interval. Test two rotating slots and one Fixed plus one Cycle. Middle-click
+  advances the rotating slice without changing the panel's selected tab.
 - [ ] `showInBar: false` hides only the meter, not the provider's panel tab. `enabled: false` hides it from both and stops collector refreshes for it.
 - [ ] When every known provider is hidden from the bar or disabled, the module glyph remains visible and opens settings. On a machine with no discovered record at all, the widget correctly stays absent.
 - [ ] Check normal, warn, and critical meter colors at the configured boundaries. They must follow the current Omarchy theme rather than a fixed color, including after a theme change.
@@ -24,8 +27,12 @@ Automated tests cover extracted logic and record validation. They cannot show cl
 
 ## Settings
 
-- [ ] Open the gear: every provider occupies one row; its name, Enabled switch, and In bar switch do not clip or overlap. Disabled providers dim In bar.
-- [ ] Switch between All providers and Cycle providers and verify the copy matches the bar. In bar is also the cycle membership. The cycle interval appears only in Cycle mode and honours 3--120 seconds.
+- [ ] Open the gear: every provider occupies one row; its name, Enabled switch,
+  and Off/Fixed/Cycle selector do not clip or overlap. Disabled providers dim
+  the bar-slot selector.
+- [ ] Switch between All providers and Cycle providers and verify the copy
+  matches the bar. In Cycle mode, the rotating-slot count and interval appear,
+  and both values stay within their stated limits.
 - [ ] Change refresh interval and warn/critical thresholds, then confirm values survive `omarchy restart shell`. Settings must apply without a restart because the panel writes via `omarchy bar set`, not directly to `shell.json`.
 - [ ] Confirm an invalid externally-written threshold pair (`warn >= critical`) never crashes the panel; it should skip the warn band until the pair is corrected.
 

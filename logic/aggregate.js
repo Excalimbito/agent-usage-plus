@@ -515,6 +515,85 @@ function selectBarProviders(providers, settings) {
   })
 }
 
+// Builds the compact bar layout used by Main.qml. `showInBar` remains the
+// compatibility gate: false always means the provider is out of the bar.
+// Newer settings can add `barRole` (`fixed` or `cycle`) to choose whether an
+// eligible provider stays visible or participates in the rotating pool.
+// Providers without an explicit role are fixed once a role has been chosen
+// for any provider. Before roles existed, cycle mode treated every
+// showInBar provider as rotating, so old configurations keep their behavior.
+//
+// `cycleSlots` is the number of rotating meters visible at once. The result
+// is capped by `slotLimit` so a large provider set cannot stretch the bar.
+// Fixed providers are placed first, followed by a contiguous rotating slice;
+// the slice wraps and never duplicates a fixed provider.
+function selectBarLayout(providers, settings, mode, cycleIndex, cycleSlots, slotLimit) {
+  var list = Array.isArray(providers) ? providers : []
+  var eligible = selectBarProviders(list, settings)
+  var providerSettings = settings && settings.providers ? settings.providers : {}
+  var explicitRoles = false
+  for (var r = 0; r < eligible.length; r++) {
+    var roleValue = eligible[r] && providerSettings[eligible[r].providerId]
+      ? providerSettings[eligible[r].providerId].barRole : ""
+    if (roleValue === "fixed" || roleValue === "cycle") {
+      explicitRoles = true
+      break
+    }
+  }
+
+  var fixed = []
+  var cycling = []
+  var cycleMode = String(mode || "all") === "cycle"
+  for (var i = 0; i < eligible.length; i++) {
+    var provider = eligible[i]
+    var id = provider && provider.providerId
+    var cfg = id && providerSettings[id] ? providerSettings[id] : {}
+    var role = cfg.barRole === "cycle" ? "cycle" : "fixed"
+    // Preserve the pre-role cycle behavior until a user has chosen a role.
+    if (cycleMode && !explicitRoles && cfg.barRole !== "fixed") role = "cycle"
+    if (cycleMode && role === "cycle") cycling.push(provider)
+    else fixed.push(provider)
+  }
+
+  var limit = Number(slotLimit)
+  if (!isFinite(limit) || limit < 0) limit = 3
+  limit = Math.max(0, Math.min(10, Math.floor(limit)))
+
+  if (!cycleMode) {
+    return {
+      providers: eligible.slice(0, limit),
+      fixed: eligible.slice(),
+      cycling: [],
+      cycleSlots: 0,
+      legacy: false
+    }
+  }
+
+  var fixedVisible = fixed.slice(0, limit)
+  var availableSlots = Math.max(0, limit - fixedVisible.length)
+  var requestedSlots = Number(cycleSlots)
+  if (!isFinite(requestedSlots)) requestedSlots = 1
+  requestedSlots = Math.max(0, Math.min(availableSlots, Math.floor(requestedSlots)))
+  var index = Number(cycleIndex)
+  if (!isFinite(index)) index = 0
+  index = Math.floor(index)
+  var rotating = []
+  if (cycling.length > 0 && requestedSlots > 0) {
+    for (var c = 0; c < requestedSlots && c < cycling.length; c++) {
+      var offset = ((index + c) % cycling.length + cycling.length) % cycling.length
+      rotating.push(cycling[offset])
+    }
+  }
+
+  return {
+    providers: fixedVisible.concat(rotating),
+    fixed: fixed,
+    cycling: cycling,
+    cycleSlots: requestedSlots,
+    legacy: !explicitRoles
+  }
+}
+
 // A pure, provider-selection-only approximation of Panel.qml's
 // providerPercent() (issue #5's `barMode: "primary"`). Panel.qml's version
 // is the source of truth for what a bar meter actually *displays* — it
@@ -612,6 +691,7 @@ if (typeof module !== "undefined" && module.exports) {
     buildLocalSnapshot: buildLocalSnapshot,
     mergeProviderDisplay: mergeProviderDisplay,
     selectBarProviders: selectBarProviders,
+    selectBarLayout: selectBarLayout,
     providerUsagePercent: providerUsagePercent,
     selectPrimaryProvider: selectPrimaryProvider,
     providerHasData: providerHasData

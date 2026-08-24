@@ -160,6 +160,26 @@ Panel {
     return !providers[id] || providers[id].showInBar !== false
   }
 
+  function providerRolesConfigured() {
+    var providers = usage.settings && usage.settings.providers ? usage.settings.providers : {}
+    for (var id in providers) {
+      var role = providers[id] ? providers[id].barRole : ""
+      if (role === "fixed" || role === "cycle") return true
+    }
+    return false
+  }
+
+  function providerSettingBarRole(id) {
+    var providers = usage.settings && usage.settings.providers ? usage.settings.providers : {}
+    var cfg = providers[id] || {}
+    if (cfg.showInBar === false) return "off"
+    if (cfg.barRole === "cycle") return "cycle"
+    if (cfg.barRole === "fixed") return "fixed"
+    // A pre-role configuration in Cycle mode still rotates all eligible
+    // providers. Reflect that legacy behavior until the user chooses a role.
+    return usage.barMode === "cycle" && !providerRolesConfigured() ? "cycle" : "fixed"
+  }
+
   // One row per provider this machine knows about, whether or not it is
   // currently enabled — `usage.agents` covers every discovered usage record
   // regardless of the `enabled` setting (only `enabledProviders` filters that
@@ -182,7 +202,8 @@ Panel {
         providerId: id,
         providerName: String(record.name || record.id),
         enabled: providerSettingEnabled(id),
-        showInBar: providerSettingShowInBar(id)
+        showInBar: providerSettingShowInBar(id),
+        barRole: providerSettingBarRole(id)
       })
     }
     var configured = usage.settings && usage.settings.providers ? usage.settings.providers : {}
@@ -193,7 +214,8 @@ Panel {
         providerId: pid,
         providerName: pid,
         enabled: providerSettingEnabled(pid),
-        showInBar: providerSettingShowInBar(pid)
+        showInBar: providerSettingShowInBar(pid),
+        barRole: providerSettingBarRole(pid)
       })
     }
     rows.sort(function(a, b) { return a.providerId < b.providerId ? -1 : (a.providerId > b.providerId ? 1 : 0) })
@@ -1855,6 +1877,10 @@ Panel {
               readonly property real providerColumnWidth: Math.min(300, Math.max(210, contentWidth * 0.36))
               readonly property real controlColumnWidth: contentWidth - providerColumnWidth - Style.space(18)
               readonly property real controlCellWidth: (controlColumnWidth - Style.space(24)) / 2
+              readonly property var barRoleOptions: ["off", "fixed", "cycle"]
+              readonly property var barRoleLabels: ({ off: "Off", fixed: "Fixed", cycle: "Cycle" })
+              readonly property real barRoleButtonWidth: Math.max(Style.space(42),
+                (controlCellWidth - Style.space(8)) / barRoleOptions.length)
 
               Row {
                 x: Style.space(14)
@@ -1865,7 +1891,7 @@ Panel {
                 Item { width: providerSettingsList.providerColumnWidth; height: parent.height }
 
                 Repeater {
-                  model: ["Enabled", "In bar"]
+                  model: ["Enabled", "Bar slot"]
 
                   Item {
                     required property string modelData
@@ -1959,12 +1985,27 @@ Panel {
                           enabled: providerSettingsRow.modelData.enabled
                           opacity: enabled ? 1.0 : 0.42
 
-                          ToggleSwitch {
+                          Row {
                             anchors.centerIn: parent
-                            checked: providerSettingsRow.modelData.showInBar
-                            foreground: root.foreground
-                            accent: Color.accent
-                            onToggled: usage.setProviderShowInBar(providerSettingsRow.modelData.providerId, !providerSettingsRow.modelData.showInBar)
+                            spacing: Style.space(4)
+
+                            Repeater {
+                              model: providerSettingsList.barRoleOptions
+
+                              Button {
+                                required property string modelData
+                                width: providerSettingsList.barRoleButtonWidth
+                                text: providerSettingsList.barRoleLabels[modelData]
+                                selected: providerSettingsRow.modelData.barRole === modelData
+                                bordered: true
+                                foreground: root.foreground
+                                fontFamily: root.fontFamily
+                                fontSize: Style.font.caption
+                                verticalPadding: Style.space(4)
+                                onClicked: usage.setProviderBarRole(
+                                  providerSettingsRow.modelData.providerId, modelData)
+                              }
+                            }
                           }
                         }
 
@@ -2026,13 +2067,27 @@ Panel {
               Text {
                 width: parent.width
                 text: usage.barMode === "cycle"
-                  ? "The bar rotates through providers marked In bar below."
-                  : "The bar shows every provider marked In bar below."
+                  ? "Fixed stays visible. Cycle slots rotate through providers marked Cycle."
+                  : "All shows every provider whose bar slot is not Off."
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
                 wrapMode: Text.WordWrap
               }
+            }
+
+            // ----- Rotating slots (only meaningful in Cycle mode) -----
+            NumberField {
+              visible: usage.barMode === "cycle"
+              label: "Rotating slots"
+              value: usage.barCycleSlots
+              from: 0
+              to: 3
+              stepSize: 1
+              foreground: root.foreground
+              accent: Color.accent
+              fontFamily: root.fontFamily
+              onModified: function(v) { usage.setBarCycleSlots(v) }
             }
 
             // ----- Cycle interval (only meaningful in Cycle mode) -----

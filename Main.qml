@@ -320,21 +320,10 @@ Item {
   }
 
   // The bar-widget slice of enabledProviders: same "enabled and has data"
-  // list the panel's chip switcher uses, further narrowed by `showInBar`
-  // (see logic/aggregate.js). The panel keeps using enabledProviders
-  // directly so a provider with `showInBar: false` stays selectable there.
-  //
-  // `barMode` (issue #5) only changes how many of those get a bar slot, not
-  // which ones are eligible in the first place — `showInBarList` below is
-  // always the same "enabled and showInBar" set `selectBarProviders`
-  // already produced for the "all" case:
-  //   - "all": every eligible provider gets a meter (today's behavior).
-  //   - "cycle": exactly one, chosen by `barCycleIndex` below and rotated
-  //     by cycleTimer / cycleNext(). `barCycleIndex` is intentionally a
-  //     separate property from Panel.qml's `providerIndex` (which tab the
-  //     panel has open) — one is "what does the BAR show", the other is
-  //     "what does the PANEL have open"; conflating them would make
-  //     clicking through panel tabs also change what the bar cycles to.
+  // list the panel's chip switcher uses, narrowed by `showInBar`.
+  // `barRole` then divides eligible providers into fixed and rotating slots
+  // when Cycle mode is selected. Providers without roles retain the old
+  // behavior: in Cycle mode they all belong to the rotating pool.
   readonly property string barMode: {
     var v = setting("barMode", "all")
     return v === "cycle" ? "cycle" : "all"
@@ -344,22 +333,22 @@ Item {
     if (!isFinite(v)) v = 8
     return Math.max(3, Math.min(120, Math.round(v)))
   }
-  // Only meaningful in "cycle" mode; wraps against whatever
-  // `showInBarList` currently contains, so a provider disappearing (or the
-  // list shrinking) never leaves it pointing past the end.
+  readonly property int barCycleSlots: {
+    var v = Number(setting("barCycleSlots", 1))
+    if (!isFinite(v)) v = 1
+    return Math.max(0, Math.min(3, Math.round(v)))
+  }
+  // Only meaningful in Cycle mode. It wraps against the rotating pool, not
+  // the panel's selected-provider index.
   property int barCycleIndex: 0
+  readonly property int barSlotLimit: 3
 
   readonly property var showInBarList: Aggregate.selectBarProviders(enabledProviders, settings)
+  readonly property var barLayout: Aggregate.selectBarLayout(
+    enabledProviders, settings, barMode, barCycleIndex, barCycleSlots, barSlotLimit)
+  readonly property var cycleBarProviders: barLayout.cycling || []
 
-  property var barProviders: {
-    var list = root.showInBarList
-    if (root.barMode === "cycle") {
-      if (list.length === 0) return []
-      var idx = ((root.barCycleIndex % list.length) + list.length) % list.length
-      return [list[idx]]
-    }
-    return list
-  }
+  readonly property var barProviders: barLayout.providers || []
 
   // Automatic rotation for `barMode: "cycle"`. Manual advances (cycleNext(),
   // wired to the bar's middle-click in cycle mode — see Panel.qml) call
@@ -371,14 +360,16 @@ Item {
   Timer {
     id: cycleTimer
     interval: root.barCycleIntervalSec * 1000
-    running: root.barMode === "cycle" && root.showInBarList.length > 1
+    running: root.barMode === "cycle"
+      && root.barCycleSlots > 0
+      && root.cycleBarProviders.length > root.barCycleSlots
     repeat: true
     onTriggered: root.advanceCycle()
   }
 
   function advanceCycle() {
-    var list = root.showInBarList
-    if (list.length === 0) return
+    var list = root.cycleBarProviders
+    if (root.barCycleSlots <= 0 || list.length <= root.barCycleSlots) return
     root.barCycleIndex = (root.barCycleIndex + 1) % list.length
   }
 
@@ -386,6 +377,7 @@ Item {
   // restarts the timer so the next automatic tick waits a full interval
   // from *this* advance rather than from whenever the timer last fired.
   function cycleNext() {
+    if (root.barMode !== "cycle" || root.barCycleSlots <= 0) return
     advanceCycle()
     cycleTimer.stop()
     cycleTimer.start()
@@ -480,12 +472,19 @@ Item {
   // back the same shape `omarchy bar set ... providers '{...}' --json` from
   // the README would.
   function setProviderField(id, field, value) {
+    var fields = {}
+    fields[field] = value
+    setProviderFields(id, fields)
+  }
+
+  function setProviderFields(id, fields) {
     if (String(id || "") === "") return
     var providers = {}
     var current = settings && settings.providers ? settings.providers : {}
     for (var pid in current) providers[pid] = Object.assign({}, current[pid])
     if (!providers[id]) providers[id] = {}
-    providers[id][field] = value
+    var patch = fields && typeof fields === "object" ? fields : {}
+    for (var key in patch) providers[id][key] = patch[key]
     writeSetting("providers", JSON.stringify(providers))
   }
 
@@ -498,6 +497,22 @@ Item {
 
   function setBarCycleIntervalSec(value) {
     writeSetting("barCycleIntervalSec", String(Math.max(3, Math.min(120, Math.round(Number(value))))))
+  }
+
+  function setBarCycleSlots(value) {
+    writeSetting("barCycleSlots", String(Math.max(0, Math.min(3, Math.round(Number(value))))))
+  }
+
+  function setProviderBarRole(id, value) {
+    var role = value === "cycle" || value === "fixed" ? value : "off"
+    // Keep the old showInBar switch authoritative for compatibility with
+    // hand-written shell.json files. A role selection updates both fields in
+    // one queued write, so the UI cannot show an enabled Cycle role that the
+    // bar still excludes.
+    setProviderFields(id, {
+      showInBar: role !== "off",
+      barRole: role === "off" ? "fixed" : role
+    })
   }
 
   // ------------------------------------------------------------------ sync
