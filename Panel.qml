@@ -628,7 +628,7 @@ Panel {
   // initial below instead of an invented or unlicensed brand asset.
   readonly property var providerIconAssets: ({
     claude: { defaultAsset: "claude.svg" },
-    codex: { defaultAsset: "codex-color.svg" },
+    codex: { defaultAsset: "codex.svg", lightAsset: "codex-light.svg" },
     fireworks: { defaultAsset: "fireworks.svg" },
     openrouter: { defaultAsset: "openrouter.svg", lightAsset: "openrouter-light.svg" },
     deepseek: { defaultAsset: "deepseek.svg" },
@@ -916,6 +916,10 @@ Panel {
 
           ProviderMark {
             anchors.verticalCenter: parent.verticalCenter
+            // The bar mark must stay legible at a glance. This is deliberately
+            // larger than selector marks, whose labels/tooltips carry context.
+            width: Style.space(20)
+            height: width
             provider: providerGroup.modelData
           }
 
