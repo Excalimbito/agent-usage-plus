@@ -661,6 +661,19 @@ Panel {
     return candidates
   }
 
+  // A fixed, lightly tinted tile gives marks with very different official
+  // viewBoxes the same visual weight. The SVG itself stays vector-rendered;
+  // no tiny raster source is stretched on hover or in the hero.
+  function providerBrandColor(p) {
+    var id = String(p && p.providerId || "")
+    var colors = {
+      claude: "#D97757", codex: "#10A37F", fireworks: "#FF6B22",
+      openrouter: "#8B5CF6", deepseek: "#4D6BFE", gemini: "#4285F4",
+      cursor: "#64748B", kimi: "#5B5CE2", xai: "#475569", zai: "#2563EB"
+    }
+    return colors[id] || Color.accent
+  }
+
   // Nothing to report, nothing in the bar: Bar.qml collapses a slot whose item
   // is invisible, so the icon appears the moment the first scan finds usage and
   // stays away entirely on a machine that has never run either CLI.
@@ -835,11 +848,21 @@ Panel {
     width: Style.font.body
     height: Style.font.body
 
+    Rectangle {
+      anchors.fill: parent
+      radius: Math.max(2, width * 0.24)
+      color: root.alpha(root.providerBrandColor(providerMark.provider), 0.16)
+      border.width: 1
+      border.color: root.alpha(root.providerBrandColor(providerMark.provider), 0.34)
+    }
+
     Image {
       id: markImage
       anchors.fill: parent
+      anchors.margins: Math.max(1, Math.round(parent.width * 0.16))
       source: providerMark.candidateIndex < providerMark.candidates.length ? providerMark.candidates[providerMark.candidateIndex] : ""
       fillMode: Image.PreserveAspectFit
+      smooth: true
       onStatusChanged: if (status === Image.Error && providerMark.candidateIndex < providerMark.candidates.length)
         Qt.callLater(function() { providerMark.candidateIndex++ })
     }
@@ -1134,40 +1157,10 @@ Panel {
             }
 
             iconComponent: Component {
-              Item {
-                id: heroMark
-                property var candidates: root.iconCandidatesForProvider(root.provider, root.surface)
-                // Provider objects are rebuilt on every refresh, which churns the
-                // array's identity without changing its content. Restart the fallback
-                // walk only when the URLs change: re-pointing source at a URL whose
-                // load already failed emits no statusChanged, so an identity-only
-                // reset would strand the walker on a missing -light twin.
-                property string candidatesKey: candidates.join("\n")
-                property int candidateIndex: 0
-                onCandidatesKeyChanged: candidateIndex = 0
-
+              ProviderMark {
                 width: Style.font.display
                 height: Style.font.display
-
-                Image {
-                  id: heroMarkImage
-                  anchors.fill: parent
-                  source: heroMark.candidateIndex < heroMark.candidates.length ? heroMark.candidates[heroMark.candidateIndex] : ""
-                  fillMode: Image.PreserveAspectFit
-                  // Advancing source from inside its own status change trips the
-                  // binding-loop detector; defer the step one tick.
-                  onStatusChanged: if (status === Image.Error && heroMark.candidateIndex < heroMark.candidates.length)
-                    Qt.callLater(function() { heroMark.candidateIndex++ })
-                }
-
-                Text {
-                  anchors.centerIn: parent
-                  visible: heroMarkImage.status !== Image.Ready
-                  text: button.text
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.display
-                }
+                provider: root.provider
               }
             }
           }
@@ -2038,108 +2031,122 @@ Panel {
               font.pixelSize: Style.font.caption
             }
 
-            // ----- Per-provider cycle controls -----
-            Column {
-              visible: root.hasCycleSlotConfigured()
+            BorderSurface {
+              id: behaviourSection
               width: parent.width
-              spacing: Style.space(6)
+              implicitHeight: behaviourContent.implicitHeight + Style.space(28)
+              color: root.alpha(root.foreground, 0.035)
+              borderSpec: Border.flat(root.alpha(root.foreground, 0.12), 1)
+              radius: Style.cornerRadius
 
-              Text {
-                text: "Cycle"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.body
+              Column {
+                id: behaviourContent
+                anchors.fill: parent
+                anchors.margins: Style.space(14)
+                spacing: Style.space(10)
+
+                Text {
+                  text: "Bar behaviour & limits"
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                }
+
+                Text {
+                  width: parent.width
+                  visible: root.hasCycleSlotConfigured()
+                  text: "Fixed stays visible. Cycle rotates providers marked Cycle."
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                }
+
+                Grid {
+                  id: behaviourGrid
+                  width: parent.width
+                  columns: 3
+                  columnSpacing: Style.space(10)
+                  rowSpacing: Style.space(10)
+                  readonly property real cellWidth: Math.floor((width - columnSpacing * (columns - 1)) / columns)
+
+                  NumberField {
+                    visible: root.hasCycleSlotConfigured()
+                    width: behaviourGrid.cellWidth
+                    label: "Cycle slots"
+                    value: usage.barCycleSlots
+                    from: 0
+                    to: 3
+                    stepSize: 1
+                    foreground: root.foreground
+                    accent: Color.accent
+                    fontFamily: root.fontFamily
+                    onModified: function(v) { usage.setBarCycleSlots(v) }
+                  }
+
+                  NumberField {
+                    visible: root.hasCycleSlotConfigured()
+                    width: behaviourGrid.cellWidth
+                    label: "Rotate (s)"
+                    value: usage.barCycleIntervalSec
+                    from: 3
+                    to: 120
+                    stepSize: 1
+                    foreground: root.foreground
+                    accent: Color.accent
+                    fontFamily: root.fontFamily
+                    onModified: function(v) { usage.setBarCycleIntervalSec(v) }
+                  }
+
+                  NumberField {
+                    width: behaviourGrid.cellWidth
+                    label: "Refresh (s)"
+                    value: usage.refreshIntervalSec
+                    from: 30
+                    to: 3600
+                    stepSize: 30
+                    foreground: root.foreground
+                    accent: Color.accent
+                    fontFamily: root.fontFamily
+                    onModified: function(v) { usage.setRefreshIntervalSec(v) }
+                  }
+
+                  NumberField {
+                    width: behaviourGrid.cellWidth
+                    label: "Warn (%)"
+                    value: root.warnThresholdPct
+                    from: 1
+                    to: 99
+                    stepSize: 1
+                    foreground: root.foreground
+                    accent: root.warn
+                    fontFamily: root.fontFamily
+                    onModified: function(v) { usage.setWarnThresholdPct(v) }
+                  }
+
+                  NumberField {
+                    width: behaviourGrid.cellWidth
+                    label: "Critical (%)"
+                    value: root.criticalThresholdPct
+                    from: 1
+                    to: 100
+                    stepSize: 1
+                    foreground: root.foreground
+                    accent: root.urgent
+                    fontFamily: root.fontFamily
+                    onModified: function(v) { usage.setCriticalThresholdPct(v) }
+                  }
+                }
+
+                Text {
+                  width: parent.width
+                  text: "Warn colors the meter early; Critical marks it urgent. Type an exact value or use the arrows."
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                }
               }
-
-              Text {
-                width: parent.width
-                text: "Fixed stays visible. Cycle rotates through providers marked Cycle."
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
-              }
-
-              NumberField {
-                label: "Visible rotating slots"
-                value: usage.barCycleSlots
-                from: 0
-                to: 3
-                stepSize: 1
-                foreground: root.foreground
-                accent: Color.accent
-                fontFamily: root.fontFamily
-                onModified: function(v) { usage.setBarCycleSlots(v) }
-              }
-
-              NumberField {
-                label: "Rotation interval (seconds)"
-                value: usage.barCycleIntervalSec
-                from: 3
-                to: 120
-                stepSize: 1
-                foreground: root.foreground
-                accent: Color.accent
-                fontFamily: root.fontFamily
-                onModified: function(v) { usage.setBarCycleIntervalSec(v) }
-              }
-            }
-
-            // ----- Refresh interval -----
-            NumberField {
-              label: "Refresh interval (seconds)"
-              value: usage.refreshIntervalSec
-              from: 30
-              to: 3600
-              stepSize: 30
-              foreground: root.foreground
-              accent: Color.accent
-              fontFamily: root.fontFamily
-              onModified: function(v) { usage.setRefreshIntervalSec(v) }
-            }
-
-            // Independent numeric fields avoid the scroll/drag bug in the
-            // previous sliders and allow exact values by keyboard.
-            NumberField {
-              label: "Warn at (%)"
-              value: root.warnThresholdPct
-              from: 1
-              to: 99
-              stepSize: 1
-              foreground: root.foreground
-              accent: root.warn
-              fontFamily: root.fontFamily
-              onModified: function(v) { usage.setWarnThresholdPct(v) }
-            }
-
-            Text {
-              width: parent.width
-              text: "The meter turns warning at this percentage."
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              wrapMode: Text.WordWrap
-            }
-
-            NumberField {
-              label: "Critical at (%)"
-              value: root.criticalThresholdPct
-              from: 1
-              to: 100
-              stepSize: 1
-              foreground: root.foreground
-              accent: root.urgent
-              fontFamily: root.fontFamily
-              onModified: function(v) { usage.setCriticalThresholdPct(v) }
-            }
-
-            Text {
-              width: parent.width
-              text: "The meter turns urgent at this percentage."
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              wrapMode: Text.WordWrap
             }
           }
 
