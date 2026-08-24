@@ -831,8 +831,6 @@ Panel {
       id: markImage
       anchors.fill: parent
       source: providerMark.candidateIndex < providerMark.candidates.length ? providerMark.candidates[providerMark.candidateIndex] : ""
-      sourceSize.width: Style.font.body * 2
-      sourceSize.height: Style.font.body * 2
       fillMode: Image.PreserveAspectFit
       onStatusChanged: if (status === Image.Error && providerMark.candidateIndex < providerMark.candidates.length)
         Qt.callLater(function() { providerMark.candidateIndex++ })
