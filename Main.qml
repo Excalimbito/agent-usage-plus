@@ -350,6 +350,21 @@ Item {
   property int barCycleIndex: 0
   readonly property int barSlotLimit: 3
 
+  // How much each bar slot shows next to its provider mark: the meter graphic
+  // and percent text ("full", the original/default look), just the percent
+  // text ("iconPercent"), or nothing but the mark itself ("icon"), for a bar
+  // that stays as compact as possible. Global rather than per-provider —
+  // this is about the bar's overall density, not any one subscription.
+  readonly property string barLabelMode: {
+    var v = String(setting("barLabelMode", "full"))
+    return v === "icon" || v === "iconPercent" ? v : "full"
+  }
+
+  // Off by default: a notification is an interruption, and nobody asked for
+  // one just by installing the widget. See Panel.qml for the actual
+  // threshold-crossing watch and the notify-send dispatch queue.
+  readonly property bool notificationsEnabled: !!setting("notificationsEnabled", false)
+
   readonly property var showInBarList: Aggregate.selectBarProviders(enabledProviders, settings)
   readonly property var barLayout: Aggregate.selectBarLayout(
     enabledProviders, settings, legacyCycleMode ? "legacy-cycle" : "roles",
@@ -503,6 +518,15 @@ Item {
 
   function setBarCycleSlots(value) {
     writeSetting("barCycleSlots", String(Math.max(0, Math.min(3, Math.round(Number(value))))))
+  }
+
+  function setBarLabelMode(value) {
+    var v = value === "icon" || value === "iconPercent" ? value : "full"
+    writeSetting("barLabelMode", JSON.stringify(v))
+  }
+
+  function setNotificationsEnabled(value) {
+    writeSetting("notificationsEnabled", JSON.stringify(!!value))
   }
 
   function setProviderBarRole(id, value) {

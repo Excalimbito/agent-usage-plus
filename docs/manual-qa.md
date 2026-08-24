@@ -15,6 +15,8 @@ Automated tests cover extracted logic and record validation. They cannot show cl
 - [ ] `showInBar: false` hides only the meter, not the provider's panel tab. `enabled: false` hides it from both and stops collector refreshes for it.
 - [ ] When every known provider is hidden from the bar or disabled, the module glyph remains visible and opens settings. On a machine with no discovered record at all, the widget correctly stays absent.
 - [ ] Check normal, warn, and critical meter colors at the configured boundaries. They must follow the current Omarchy theme rather than a fixed color, including after a theme change.
+- [ ] Every provider mark is crisp (not soft/blurry) and reads as the same visual size at both bar scale and panel scale, including Claude and Codex against the rest of the set. Codex stays a plain white (or black on a light surface) mark, never tinted.
+- [ ] Cycle the "Bar labels" setting through Icon, Icon + %, and Full: the bar shows only the mark, the mark with its percentage, and the mark with percentage and meter, respectively — with no leftover gap or misaligned spacing between slots in any mode.
 
 ## Panel hierarchy and interaction
 
@@ -32,8 +34,15 @@ Automated tests cover extracted logic and record validation. They cannot show cl
   the bar-slot selector.
 - [ ] Mark a provider Cycle and verify the rotating-slot count and interval
   appear. Both values must stay within their stated limits.
-- [ ] Change refresh interval and warn/critical thresholds, then confirm values survive `omarchy restart shell`. Settings must apply without a restart because the panel writes via `omarchy bar set`, not directly to `shell.json`.
+- [ ] Change refresh interval and warn/critical thresholds, click Save, then confirm values survive `omarchy restart shell`. Settings must apply without a restart because the panel writes via `omarchy bar set`, not directly to `shell.json`.
 - [ ] Confirm an invalid externally-written threshold pair (`warn >= critical`) never crashes the panel; it should skip the warn band until the pair is corrected.
+- [ ] Edit a Behaviour field (e.g. type a new Warn value) without clicking Save, then toggle an unrelated switch (a provider's Enabled/Bar slot, or Notifications) — the in-progress edit and the "Unsaved changes" label must survive; the field must not snap back to its old value. Save commits every changed field in one go; closing and reopening Settings without saving discards the draft back to the live value.
+
+## Notifications
+
+- [ ] With Notifications off (default), no `notify-send` fires no matter how high usage climbs.
+- [ ] With Notifications on, a provider crossing Warn produces exactly one notification, and crossing Critical produces exactly one more — not a repeat on every refresh while it stays above the line.
+- [ ] After the window resets (or on the next billing/session period), the same provider crossing Warn again produces a new notification.
 
 ## Error and data states
 

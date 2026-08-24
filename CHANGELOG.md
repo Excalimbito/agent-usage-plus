@@ -13,10 +13,15 @@ All notable changes to this project are documented in this file. The format is b
 - Details shows token use by model before any optional API-price estimate, and the history chart is a labelled line across recorded days.
 - Status cards always show the collector's status and show its help text when available, preventing a blank error card.
 
+- Provider marks render at a consistent visual weight (Claude and Codex no longer read larger than the rest) and rasterize at their actual on-screen size instead of a default SVG size scaled after the fact, fixing blurriness. Codex and Kimi's bundled SVGs no longer use a CSS-only `1em` size that Quickshell can't resolve.
+- The Behaviour settings fields (cycle slots, rotate/refresh seconds, warn/critical thresholds) now edit a local draft and commit on an explicit Save button, instead of writing on every keystroke — a field being edited could previously be reset mid-edit by any other settings write or a periodic refresh landing at the same time.
+
 ### Added
 
 - `docs/manual-qa.md`, a live-bar QA checklist that complements automated checks and records the required QML restart workflow.
 - `docs/troubleshooting.md`, including credential, visibility, balance, cost, and QML reload guidance.
+- A "Bar labels" control (Icon / Icon + % / Full) so the bar can show just the provider mark, the mark with its percentage, or the full meter — independent of bar role/cycle settings.
+- An opt-in "Notify when a provider crosses Warn or Critical" setting, off by default: one `notify-send` notification per provider per crossing (not a repeat every refresh), rearmed on the next billing/session window.
 
 ## [1.5.0] - 2026-08-23
 

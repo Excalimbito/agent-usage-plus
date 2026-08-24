@@ -626,9 +626,13 @@ Panel {
   // provider without a bundled mark emit a runtime warning on every refresh.
   // Keep this deliberately small: unregistered providers use the readable
   // initial below instead of an invented or unlicensed brand asset.
+  // `scale` normalizes marks whose artwork bleeds closer to the edge of its
+  // own viewBox than the rest of the set (Claude's brand mark, Codex's glyph)
+  // so every mark reads as the same visual size at a given box, not just the
+  // same bounding box. Omitted entries default to 1 (no adjustment needed).
   readonly property var providerIconAssets: ({
-    claude: { defaultAsset: "claude.svg" },
-    codex: { defaultAsset: "codex.svg", lightAsset: "codex-light.svg" },
+    claude: { defaultAsset: "claude.svg", scale: 0.88 },
+    codex: { defaultAsset: "codex.svg", lightAsset: "codex-light.svg", scale: 0.8 },
     fireworks: { defaultAsset: "fireworks.svg" },
     openrouter: { defaultAsset: "openrouter.svg", lightAsset: "openrouter-light.svg" },
     deepseek: { defaultAsset: "deepseek.svg" },
@@ -659,6 +663,18 @@ Panel {
       candidates.push(Qt.resolvedUrl("assets/" + assets.lightAsset))
     if (assets.defaultAsset) candidates.push(Qt.resolvedUrl("assets/" + assets.defaultAsset))
     return candidates
+  }
+
+  // Companion to iconCandidatesForProvider: the fraction of its box a mark's
+  // artwork should occupy, so brand marks with less internal padding than
+  // the rest of the set don't read as larger. See providerIconAssets.
+  function iconScaleForProvider(p) {
+    if (!p) return 1
+    var id = String(p.providerId || "")
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return 1
+    var assets = root.providerIconAssets[id]
+    var scale = assets ? Number(assets.scale) : 1
+    return isFinite(scale) && scale > 0 && scale <= 1 ? scale : 1
   }
 
   // Nothing to report, nothing in the bar: Bar.qml collapses a slot whose item
@@ -761,6 +777,74 @@ Panel {
     return -1
   }
 
+  // ------------------------------------------------------- notifications
+  //
+  // Opt-in (usage.notificationsEnabled, off by default) and quiet: one
+  // notification per provider the moment its primary window first reaches
+  // Warn, and one more if it goes on to reach Critical — never a repeat on
+  // every refresh while it sits there. `notifiedThresholds` remembers the
+  // highest severity already announced for a given provider+window (keyed
+  // by resetAt), so a new billing/session window naturally rearms it.
+  readonly property var severityRank: ({ ok: 0, warn: 1, critical: 2 })
+  property var notifiedThresholds: ({})
+
+  onProvidersChanged: if (usage.notificationsEnabled) checkThresholdNotifications()
+
+  function checkThresholdNotifications() {
+    for (var i = 0; i < root.providers.length; i++) {
+      var p = root.providers[i]
+      var window = providerPrimaryWindow(p)
+      if (!window) continue
+      var severity = providerSeverity(p)
+      var rank = root.severityRank[severity] || 0
+      if (rank < 1) continue
+      var key = String(p.providerId || "") + "|" + window.resetAt
+      var prevRank = root.severityRank[root.notifiedThresholds[key]] || 0
+      if (rank > prevRank) {
+        root.notifiedThresholds[key] = severity
+        root.queueNotification(p, window, severity)
+      }
+    }
+  }
+
+  property var notificationQueue: []
+  property bool notificationRunning: false
+
+  Process {
+    id: notifyProcess
+    running: false
+    onExited: function(exitCode) {
+      if (exitCode !== 0)
+        console.warn("agents/notify", "notify-send failed:", notifyProcess.command.join(" "))
+      root.notificationRunning = false
+      root.pumpNotificationQueue()
+    }
+
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: if (text.trim() !== "") console.warn("agents/notify", text.trim())
+    }
+  }
+
+  function queueNotification(p, window, severity) {
+    var name = String((p && p.providerName) || (p && p.providerId) || "Provider")
+    var pct = providerPercentText(p)
+    var urgency = severity === "critical" ? "critical" : "normal"
+    var summary = name + " — " + (severity === "critical" ? "critical" : "warning")
+    var body = window.title + " at " + pct
+    root.notificationQueue.push(["notify-send", "--app-name=Agent Usage Plus", "--urgency=" + urgency, summary, body])
+    root.pumpNotificationQueue()
+  }
+
+  function pumpNotificationQueue() {
+    if (root.notificationRunning) return
+    if (root.notificationQueue.length === 0) return
+    var next = root.notificationQueue.shift()
+    root.notificationRunning = true
+    notifyProcess.command = next
+    notifyProcess.running = true
+  }
+
   // A wide track with faint ticks at the quarter marks, so the fill reads
   // as "about two thirds of the way there" rather than an unscaled smear.
   component CheckpointMeter: Item {
@@ -830,6 +914,7 @@ Panel {
     property var candidates: root.iconCandidatesForProvider(provider, root.surface)
     property string candidatesKey: candidates.join("\n")
     property int candidateIndex: 0
+    property real iconScale: root.iconScaleForProvider(provider)
     onCandidatesKeyChanged: candidateIndex = 0
 
     width: Style.font.body
@@ -837,7 +922,16 @@ Panel {
 
     Image {
       id: markImage
-      anchors.fill: parent
+      anchors.centerIn: parent
+      width: Math.round(parent.width * providerMark.iconScale)
+      height: Math.round(parent.height * providerMark.iconScale)
+      // Rasterize the SVG directly at its on-screen size (rather than at
+      // whatever default size QtSvg picks and then bilinearly scaling that
+      // pixmap) — without this, marks read as soft/blurry, worse the larger
+      // the box or the higher the screen's device pixel ratio.
+      sourceSize: Qt.size(width, height)
+      smooth: true
+      mipmap: true
       source: providerMark.candidateIndex < providerMark.candidates.length ? providerMark.candidates[providerMark.candidateIndex] : ""
       fillMode: Image.PreserveAspectFit
       onStatusChanged: if (status === Image.Error && providerMark.candidateIndex < providerMark.candidates.length)
@@ -929,11 +1023,12 @@ Panel {
             value: root.providerPercent(providerGroup.modelData)
             secondaryValue: root.providerSecondaryPercent(providerGroup.modelData)
             severity: root.providerSeverity(providerGroup.modelData)
-            visible: root.providerPercent(providerGroup.modelData) >= 0
+            visible: usage.barLabelMode === "full" && root.providerPercent(providerGroup.modelData) >= 0
           }
 
           Text {
             anchors.verticalCenter: parent.verticalCenter
+            visible: usage.barLabelMode !== "icon"
             text: root.providerPercentText(providerGroup.modelData)
             color: root.foreground
             font.family: root.fontFamily
@@ -1148,6 +1243,7 @@ Panel {
                 // reset would strand the walker on a missing -light twin.
                 property string candidatesKey: candidates.join("\n")
                 property int candidateIndex: 0
+                property real iconScale: root.iconScaleForProvider(root.provider)
                 onCandidatesKeyChanged: candidateIndex = 0
 
                 width: Style.font.display
@@ -1155,7 +1251,12 @@ Panel {
 
                 Image {
                   id: heroMarkImage
-                  anchors.fill: parent
+                  anchors.centerIn: parent
+                  width: Math.round(parent.width * heroMark.iconScale)
+                  height: Math.round(parent.height * heroMark.iconScale)
+                  sourceSize: Qt.size(width, height)
+                  smooth: true
+                  mipmap: true
                   source: heroMark.candidateIndex < heroMark.candidates.length ? heroMark.candidates[heroMark.candidateIndex] : ""
                   fillMode: Image.PreserveAspectFit
                   // Advancing source from inside its own status change trips the
@@ -1872,6 +1973,12 @@ Panel {
             width: parent.width
             spacing: Style.spacing.lg
 
+            // Discard any unsaved draft the moment settings are reopened,
+            // rather than resuming an edit from a previous visit — resyncing
+            // only here (never on a live settings change) is what keeps a
+            // draft immune to being clobbered while the panel is open.
+            onVisibleChanged: if (visible) behaviourContent.resyncDrafts()
+
             PanelSectionHeader {
               width: parent.width
               text: "SETTINGS"
@@ -2056,6 +2163,45 @@ Panel {
                 anchors.margins: Style.space(14)
                 spacing: Style.space(10)
 
+                readonly property var barLabelOptions: ["icon", "iconPercent", "full"]
+                readonly property var barLabelLabels: ({ icon: "Icon", iconPercent: "Icon + %", full: "Full" })
+
+                // Draft copies of the numeric fields below, committed only on
+                // Save. Binding a SpinBox's `value` straight to a setting
+                // meant every settings write (even to an unrelated field, or
+                // the periodic refresh reloading `settings` wholesale) could
+                // reassert a stale number over whatever the person was still
+                // typing. Drafts only ever change from resyncDrafts() (on
+                // opening settings) or the fields' own onModified, so nothing
+                // else can clobber an in-progress edit.
+                property int draftCycleSlots: usage.barCycleSlots
+                property int draftCycleIntervalSec: usage.barCycleIntervalSec
+                property int draftRefreshIntervalSec: usage.refreshIntervalSec
+                property int draftWarnThresholdPct: root.warnThresholdPct
+                property int draftCriticalThresholdPct: root.criticalThresholdPct
+
+                readonly property bool settingsDirty: draftCycleSlots !== usage.barCycleSlots
+                  || draftCycleIntervalSec !== usage.barCycleIntervalSec
+                  || draftRefreshIntervalSec !== usage.refreshIntervalSec
+                  || draftWarnThresholdPct !== root.warnThresholdPct
+                  || draftCriticalThresholdPct !== root.criticalThresholdPct
+
+                function resyncDrafts() {
+                  draftCycleSlots = usage.barCycleSlots
+                  draftCycleIntervalSec = usage.barCycleIntervalSec
+                  draftRefreshIntervalSec = usage.refreshIntervalSec
+                  draftWarnThresholdPct = root.warnThresholdPct
+                  draftCriticalThresholdPct = root.criticalThresholdPct
+                }
+
+                function saveDrafts() {
+                  usage.setBarCycleSlots(draftCycleSlots)
+                  usage.setBarCycleIntervalSec(draftCycleIntervalSec)
+                  usage.setRefreshIntervalSec(draftRefreshIntervalSec)
+                  usage.setWarnThresholdPct(draftWarnThresholdPct)
+                  usage.setCriticalThresholdPct(draftCriticalThresholdPct)
+                }
+
                 Text {
                   text: "Bar behaviour & limits"
                   color: root.foreground
@@ -2067,6 +2213,48 @@ Panel {
                   width: parent.width
                   visible: root.hasCycleSlotConfigured()
                   text: "Fixed stays visible. Cycle rotates providers marked Cycle."
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                }
+
+                Row {
+                  spacing: Style.space(10)
+
+                  Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Bar labels"
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                  }
+
+                  Row {
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.space(4)
+
+                    Repeater {
+                      model: behaviourContent.barLabelOptions
+
+                      Button {
+                        required property string modelData
+                        text: behaviourContent.barLabelLabels[modelData]
+                        selected: usage.barLabelMode === modelData
+                        bordered: true
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        fontSize: Style.font.caption
+                        verticalPadding: Style.space(4)
+                        onClicked: usage.setBarLabelMode(modelData)
+                      }
+                    }
+                  }
+                }
+
+                Text {
+                  width: parent.width
+                  text: "Icon shows just the mark; Icon + % adds the number; Full also draws the meter."
                   color: root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
@@ -2085,77 +2273,124 @@ Panel {
                     visible: root.hasCycleSlotConfigured()
                     width: behaviourGrid.cellWidth
                     label: "Cycle slots"
-                    value: usage.barCycleSlots
+                    value: behaviourContent.draftCycleSlots
                     from: 0
                     to: 3
                     stepSize: 1
                     foreground: root.foreground
                     accent: Color.accent
                     fontFamily: root.fontFamily
-                    onModified: function(v) { usage.setBarCycleSlots(v) }
+                    onModified: function(v) { behaviourContent.draftCycleSlots = v }
                   }
 
                   NumberField {
                     visible: root.hasCycleSlotConfigured()
                     width: behaviourGrid.cellWidth
                     label: "Rotate (s)"
-                    value: usage.barCycleIntervalSec
+                    value: behaviourContent.draftCycleIntervalSec
                     from: 3
                     to: 120
                     stepSize: 1
                     foreground: root.foreground
                     accent: Color.accent
                     fontFamily: root.fontFamily
-                    onModified: function(v) { usage.setBarCycleIntervalSec(v) }
+                    onModified: function(v) { behaviourContent.draftCycleIntervalSec = v }
                   }
 
                   NumberField {
                     width: behaviourGrid.cellWidth
                     label: "Refresh (s)"
-                    value: usage.refreshIntervalSec
+                    value: behaviourContent.draftRefreshIntervalSec
                     from: 30
                     to: 3600
                     stepSize: 30
                     foreground: root.foreground
                     accent: Color.accent
                     fontFamily: root.fontFamily
-                    onModified: function(v) { usage.setRefreshIntervalSec(v) }
+                    onModified: function(v) { behaviourContent.draftRefreshIntervalSec = v }
                   }
 
                   NumberField {
                     width: behaviourGrid.cellWidth
                     label: "Warn (%)"
-                    value: root.warnThresholdPct
+                    value: behaviourContent.draftWarnThresholdPct
                     from: 1
                     to: 99
                     stepSize: 1
                     foreground: root.foreground
                     accent: root.warn
                     fontFamily: root.fontFamily
-                    onModified: function(v) { usage.setWarnThresholdPct(v) }
+                    onModified: function(v) { behaviourContent.draftWarnThresholdPct = v }
                   }
 
                   NumberField {
                     width: behaviourGrid.cellWidth
                     label: "Critical (%)"
-                    value: root.criticalThresholdPct
+                    value: behaviourContent.draftCriticalThresholdPct
                     from: 1
                     to: 100
                     stepSize: 1
                     foreground: root.foreground
                     accent: root.urgent
                     fontFamily: root.fontFamily
-                    onModified: function(v) { usage.setCriticalThresholdPct(v) }
+                    onModified: function(v) { behaviourContent.draftCriticalThresholdPct = v }
                   }
                 }
 
                 Text {
                   width: parent.width
-                  text: "Warn colors the meter early; Critical marks it urgent. Type an exact value or use the arrows."
+                  text: "Warn colors the meter early; Critical marks it urgent. Type an exact value or use the arrows, then Save."
                   color: root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                   wrapMode: Text.WordWrap
+                }
+
+                Row {
+                  spacing: Style.space(10)
+
+                  Button {
+                    text: "Save"
+                    enabled: behaviourContent.settingsDirty
+                    bordered: true
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.caption
+                    verticalPadding: Style.space(4)
+                    onClicked: behaviourContent.saveDrafts()
+                  }
+
+                  Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: behaviourContent.settingsDirty ? "Unsaved changes" : "Saved"
+                    color: behaviourContent.settingsDirty ? root.warn : root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+                }
+
+                // Notifications (opt-in, off by default) — a single
+                // system notification the moment a provider first crosses
+                // Warn or Critical, not a repeat every refresh. See
+                // notifyForThresholdCrossings() in this file.
+                Row {
+                  spacing: Style.space(10)
+
+                  ToggleSwitch {
+                    anchors.verticalCenter: parent.verticalCenter
+                    checked: usage.notificationsEnabled
+                    foreground: root.foreground
+                    accent: Color.accent
+                    onToggled: usage.setNotificationsEnabled(!usage.notificationsEnabled)
+                  }
+
+                  Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Notify when a provider crosses Warn or Critical"
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                  }
                 }
               }
             }
