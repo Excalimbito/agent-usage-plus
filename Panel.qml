@@ -91,11 +91,6 @@ Panel {
   readonly property var cost: provider ? (provider.cost || null) : null
   readonly property bool costHasModelBreakdown: !!cost && Array.isArray(cost.byModel)
     && cost.byModel.length > 0
-  // Session-only, like `expanded`/`settingsOpen`: whether the "Est. API
-  // cost" row's per-model breakdown is unfolded. Reset per provider switch
-  // so switching subscriptions doesn't leave a stale breakdown open under
-  // a different provider's number.
-  property bool costOpen: false
 
   // ---------------------------------------------------------- history chart
   //
@@ -378,10 +373,6 @@ Panel {
     return Format.formatUsd(value)
   }
 
-  function toggleCost() {
-    root.costOpen = !root.costOpen
-  }
-
   function balanceDetailText(b) {
     if (!b || !(b.funded > 0)) return ""
     var text = formatMoney(b.spent, b.currency) + " spent of " + formatMoney(b.funded, b.currency) + " funded"
@@ -478,42 +469,6 @@ Panel {
     return peak
   }
 
-  function costSummaryText(cost) {
-    if (!cost) return ""
-    // Keep the number itself short. The line below explains exactly what it
-    // means, so the dollar value never gets mistaken for subscription billing.
-    return cost.incomplete ? "Partial API price" : "Estimated API price"
-  }
-
-  function costPeriodText(cost) {
-    var period = String(cost && cost.period || "")
-    if (period === "24h") return "the last 24 hours"
-    if (period === "7d") return "the last 7 days"
-    if (period === "30d") return "the last 30 days"
-    if (period === "90d") return "the last 90 days"
-    return period === "" ? "the recorded transcript history" : period
-  }
-
-  function costHelpText(cost) {
-    if (!cost) return ""
-    var unknown = cost.unknownModels || []
-    var name = provider ? String(provider.providerName || "this provider") : "this provider"
-    if (cost.incomplete) {
-      var names = []
-      for (var i = 0; i < unknown.length; i++) names.push(usage.friendlyModelName(unknown[i]))
-      return "Estimated API price for tokens recorded in " + name + " over "
-        + costPeriodText(cost) + ". Excludes "
-        + (names.length === 1 ? "the unpriced model " : "unpriced models ")
-        + (names.length > 0 ? names.join(", ") : "not-yet-priced models")
-        + ". This is not your subscription price or an invoice."
-    }
-    var priced = Number(cost.pricedTokens || 0)
-    var coverage = priced > 0 ? " from " + usage.formatTokenCount(priced) + " transcript tokens" : ""
-    return "What " + costPeriodText(cost) + " of recorded tokens in " + name
-      + " would cost at published API rates" + coverage
-      + ". It is not subscription usage or a bill."
-  }
-
   function apiCostForModel(row) {
     if (!row || !root.cost || !Array.isArray(root.cost.byModel)) return null
     var modelId = String(row.id || "")
@@ -524,6 +479,16 @@ Panel {
         || usage.friendlyModelName(entry.model) === friendly) return Number(entry.usd || 0)
     }
     return null
+  }
+
+  function unpricedModelText(cost) {
+    if (!cost || !cost.incomplete) return ""
+    var unknown = cost.unknownModels || []
+    var names = []
+    for (var i = 0; i < unknown.length; i++) names.push(usage.friendlyModelName(unknown[i]))
+    return names.length > 0
+      ? "API USD is partial. No published rate for " + names.join(", ") + "."
+      : "API USD is partial because some models have no published rate."
   }
 
   function dayTooltip(day, today) {
@@ -685,14 +650,12 @@ Panel {
 
   onProviderIndexChanged: {
     if (panelFlick) panelFlick.contentY = 0
-    costOpen = false
     Qt.callLater(root.ensureSelectedChipVisible)
   }
   onOpenedChanged: if (opened) {
     cursorActive = false
     expanded = false
     settingsOpen = false
-    costOpen = false
     nowMs = Date.now()
     if (panelFlick) panelFlick.contentY = 0
     usage.refreshLimits()
@@ -1295,9 +1258,9 @@ Panel {
               }
             }
 
-          // ---------- Balance / limits / cost ----------
+          // ---------- Balance / limits ----------
           PanelSeparator {
-            visible: balanceSection.visible || limitsSection.visible || costSection.visible
+            visible: balanceSection.visible || limitsSection.visible || detailModelSection.visible
             foreground: root.foreground
           }
 
@@ -1445,10 +1408,9 @@ Panel {
               }
 
               Text {
+                visible: root.costHasModelBreakdown
                 width: parent.width
-                text: root.costHasModelBreakdown
-                  ? "Tokens recorded locally. The right column is an optional API-rate equivalent."
-                  : "Tokens recorded locally."
+                text: "API USD is a published-rate estimate, not subscription billing."
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -1476,7 +1438,7 @@ Panel {
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                   font.bold: true
-                  anchors.right: modelHeadingCost.left
+                  anchors.right: root.costHasModelBreakdown ? modelHeadingCost.left : parent.right
                   anchors.rightMargin: root.costHasModelBreakdown ? Style.space(10) : Style.space(8)
                   anchors.verticalCenter: parent.verticalCenter
                 }
@@ -1484,11 +1446,13 @@ Panel {
                 Text {
                   id: modelHeadingCost
                   visible: root.costHasModelBreakdown
-                  text: "API PRICE"
+                  width: Style.space(70)
+                  text: "API USD"
                   color: root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                   font.bold: true
+                  horizontalAlignment: Text.AlignRight
                   anchors.right: parent.right
                   anchors.verticalCenter: parent.verticalCenter
                 }
@@ -1505,144 +1469,15 @@ Panel {
                   apiCost: root.apiCostForModel(modelData)
                 }
               }
-            }
-          }
-
-          // ---------- Cost: an optional, collector-reported *estimate* of
-          // what usage would cost at published API rates. A compact card
-          // keeps the number visually connected to its disclosure without
-          // competing with the subscription allowance above it.
-          BorderSurface {
-            id: costSection
-            // API-rate cost is useful for an audit, not the first answer a
-            // subscription panel should demand attention for. Keep it in
-            // Details with the other secondary data.
-            visible: !!root.cost && root.expanded
-            width: parent.width
-            implicitHeight: costContent.implicitHeight + Style.space(28)
-            color: root.alpha(root.foreground, 0.035)
-            borderSpec: Border.flat(root.alpha(root.foreground, 0.12), 1)
-            radius: Style.cornerRadius
-
-            Column {
-              id: costContent
-              anchors.left: parent.left
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              anchors.leftMargin: Style.space(14)
-              anchors.rightMargin: Style.space(14)
-              spacing: Style.space(8)
-
-              PanelSectionHeader {
-                width: parent.width
-                text: "Equivalent API price"
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-              }
-
-              MouseArea {
-                width: parent.width
-                height: costHeaderRow.implicitHeight
-                cursorShape: Qt.PointingHandCursor
-                enabled: !!root.cost && root.cost.byModel && root.cost.byModel.length > 0
-                onClicked: root.toggleCost()
-
-                Item {
-                  id: costHeaderRow
-                  width: parent.width
-                  implicitHeight: Math.max(costLabel.implicitHeight, costValueText.implicitHeight, costDisclosure.implicitHeight)
-
-                  Text {
-                    id: costLabel
-                    text: root.costSummaryText(root.cost)
-                    color: root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
-                    anchors.left: parent.left
-                    anchors.right: costValueText.left
-                    anchors.rightMargin: Style.space(8)
-                    anchors.verticalCenter: parent.verticalCenter
-                    elide: Text.ElideRight
-                  }
-
-                  Text {
-                    id: costValueText
-                    text: root.cost ? root.formatUsd(root.cost.estimateUsd) : ""
-                    textFormat: Text.PlainText
-                    color: root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
-                    font.bold: true
-                    anchors.right: costDisclosure.left
-                    anchors.rightMargin: root.cost && root.cost.byModel && root.cost.byModel.length > 0 ? Style.space(6) : 0
-                    anchors.verticalCenter: parent.verticalCenter
-                  }
-
-                // The row has always been clickable when model estimates
-                // exist, but nothing on screen said so. A standard disclosure
-                // action makes the optional breakdown discoverable and gives
-                // it a keyboard target without permanently expanding more
-                // vertical content.
-                  PanelActionButton {
-                  id: costDisclosure
-                  visible: !!root.cost && root.cost.byModel && root.cost.byModel.length > 0
-                  anchors.right: parent.right
-                  anchors.verticalCenter: parent.verticalCenter
-                  iconText: root.costOpen ? "󰅃" : "󰅀"
-                  tooltipText: root.costOpen ? "Hide model cost breakdown" : "Show model cost breakdown"
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  bordered: true
-                  focusable: true
-                  onClicked: root.toggleCost()
-                  }
-                }
-              }
 
               Text {
+                visible: root.costHasModelBreakdown && root.cost.incomplete
                 width: parent.width
-                text: root.costHelpText(root.cost)
-                textFormat: Text.PlainText
-                color: root.dim
+                text: root.unpricedModelText(root.cost)
+                color: root.warn
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
                 wrapMode: Text.WordWrap
-              }
-
-              Column {
-                width: parent.width
-                spacing: Style.space(6)
-                visible: root.costOpen && !!root.cost && root.cost.byModel && root.cost.byModel.length > 0
-
-                Repeater {
-                  model: (root.costOpen && root.cost) ? root.cost.byModel : []
-
-                  Item {
-                    required property var modelData
-                    width: costContent.width
-                    implicitHeight: costModelName.implicitHeight
-
-                    Text {
-                    id: costModelName
-                    text: usage.friendlyModelName(modelData.model)
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                    anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    Text {
-                    text: root.formatUsd(modelData.usd)
-                    textFormat: Text.PlainText
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    }
-                  }
-                }
               }
             }
           }
@@ -2266,6 +2101,15 @@ Panel {
                 value: root.warnThresholdPct
                 onReleased: function(v) { usage.setWarnThresholdPct(v) }
               }
+
+              Text {
+                width: parent.width
+                text: "Percentage of a limit used before the meter changes to warning."
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
+              }
             }
 
             Column {
@@ -2306,15 +2150,14 @@ Panel {
                 value: root.criticalThresholdPct
                 onReleased: function(v) { usage.setCriticalThresholdPct(v) }
               }
-            }
-
-            Text {
-              width: parent.width
-              text: "Settings write through `omarchy bar set` and apply immediately. No restart needed."
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              wrapMode: Text.WordWrap
+              Text {
+                width: parent.width
+                text: "Percentage of a limit used before the meter changes to urgent."
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
+              }
             }
           }
 
@@ -2371,7 +2214,7 @@ Panel {
         id: limitValue
         text: limitRow.window && limitRow.window.percent >= 0
           ? Format.formatPercent(limitRow.window.percent)
-          : "—"
+          : "n/a"
         color: root.colorForSeverity(limitRow.severity)
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
@@ -2561,12 +2404,15 @@ Panel {
 
     Text {
       id: modelCost
-      visible: modelRow.apiCost !== null && modelRow.apiCost !== undefined
-      text: visible ? root.formatUsd(modelRow.apiCost) : ""
+      visible: root.costHasModelBreakdown
+      width: Style.space(70)
+      text: modelRow.apiCost !== null && modelRow.apiCost !== undefined
+        ? root.formatUsd(modelRow.apiCost) : "n/a"
       textFormat: Text.PlainText
       color: root.dim
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
+      horizontalAlignment: Text.AlignRight
       anchors.right: parent.right
       anchors.rightMargin: Style.space(8)
       anchors.verticalCenter: parent.verticalCenter
