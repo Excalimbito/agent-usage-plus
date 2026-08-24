@@ -628,7 +628,7 @@ Panel {
   // initial below instead of an invented or unlicensed brand asset.
   readonly property var providerIconAssets: ({
     claude: { defaultAsset: "claude.svg" },
-    codex: { defaultAsset: "codex.svg", lightAsset: "codex-light.svg" },
+    codex: { defaultAsset: "codex-color.svg" },
     fireworks: { defaultAsset: "fireworks.svg" },
     openrouter: { defaultAsset: "openrouter.svg", lightAsset: "openrouter-light.svg" },
     deepseek: { defaultAsset: "deepseek.svg" },
@@ -659,19 +659,6 @@ Panel {
       candidates.push(Qt.resolvedUrl("assets/" + assets.lightAsset))
     if (assets.defaultAsset) candidates.push(Qt.resolvedUrl("assets/" + assets.defaultAsset))
     return candidates
-  }
-
-  // A fixed, lightly tinted tile gives marks with very different official
-  // viewBoxes the same visual weight. The SVG itself stays vector-rendered;
-  // no tiny raster source is stretched on hover or in the hero.
-  function providerBrandColor(p) {
-    var id = String(p && p.providerId || "")
-    var colors = {
-      claude: "#D97757", codex: "#10A37F", fireworks: "#FF6B22",
-      openrouter: "#8B5CF6", deepseek: "#4D6BFE", gemini: "#4285F4",
-      cursor: "#64748B", kimi: "#5B5CE2", xai: "#475569", zai: "#2563EB"
-    }
-    return colors[id] || Color.accent
   }
 
   // Nothing to report, nothing in the bar: Bar.qml collapses a slot whose item
@@ -848,21 +835,11 @@ Panel {
     width: Style.font.body
     height: Style.font.body
 
-    Rectangle {
-      anchors.fill: parent
-      radius: Math.max(2, width * 0.24)
-      color: root.alpha(root.providerBrandColor(providerMark.provider), 0.16)
-      border.width: 1
-      border.color: root.alpha(root.providerBrandColor(providerMark.provider), 0.34)
-    }
-
     Image {
       id: markImage
       anchors.fill: parent
-      anchors.margins: Math.max(1, Math.round(parent.width * 0.16))
       source: providerMark.candidateIndex < providerMark.candidates.length ? providerMark.candidates[providerMark.candidateIndex] : ""
       fillMode: Image.PreserveAspectFit
-      smooth: true
       onStatusChanged: if (status === Image.Error && providerMark.candidateIndex < providerMark.candidates.length)
         Qt.callLater(function() { providerMark.candidateIndex++ })
     }
@@ -1157,10 +1134,40 @@ Panel {
             }
 
             iconComponent: Component {
-              ProviderMark {
+              Item {
+                id: heroMark
+                property var candidates: root.iconCandidatesForProvider(root.provider, root.surface)
+                // Provider objects are rebuilt on every refresh, which churns the
+                // array's identity without changing its content. Restart the fallback
+                // walk only when the URLs change: re-pointing source at a URL whose
+                // load already failed emits no statusChanged, so an identity-only
+                // reset would strand the walker on a missing -light twin.
+                property string candidatesKey: candidates.join("\n")
+                property int candidateIndex: 0
+                onCandidatesKeyChanged: candidateIndex = 0
+
                 width: Style.font.display
                 height: Style.font.display
-                provider: root.provider
+
+                Image {
+                  id: heroMarkImage
+                  anchors.fill: parent
+                  source: heroMark.candidateIndex < heroMark.candidates.length ? heroMark.candidates[heroMark.candidateIndex] : ""
+                  fillMode: Image.PreserveAspectFit
+                  // Advancing source from inside its own status change trips the
+                  // binding-loop detector; defer the step one tick.
+                  onStatusChanged: if (status === Image.Error && heroMark.candidateIndex < heroMark.candidates.length)
+                    Qt.callLater(function() { heroMark.candidateIndex++ })
+                }
+
+                Text {
+                  anchors.centerIn: parent
+                  visible: heroMarkImage.status !== Image.Ready
+                  text: button.text
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.display
+                }
               }
             }
           }
