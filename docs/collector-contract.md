@@ -294,8 +294,7 @@ unremarkable state.
 ## Settings note (what's *not* part of this contract)
 
 Everything in `manifest.json`'s `providers.<id>` settings block —
-`enabled`, and (as they land) per-provider flags like `showInBar` or
-`primary` — is configuration the *user* sets for the widget, not something
+`enabled` and `showInBar` — is configuration the *user* sets for the widget, not something
 a collector writes into its own record. Most of the display/settings work
 (per-provider bar visibility, bar display modes, warning/critical color
 thresholds, the expandable panel view, or the in-panel settings editor)

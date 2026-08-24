@@ -6,10 +6,11 @@ All notable changes to this project are documented in this file. The format is b
 
 ### Changed
 
-- The release QA checklist and troubleshooting guidance now describe the shipped panel: separate Settings and all-model actions, bar display modes, thresholds, history ranges, cost estimates, and collector error states.
+- The release QA checklist and troubleshooting guidance now describe the shipped panel: separate Settings and Details actions, bar display modes, thresholds, line history, API-price estimates, and collector error states.
 - The bar represents additional providers with a `+N` affordance instead of growing without bound in All mode; the panel remains the complete provider switcher.
-- Provider chips keep a readable fixed width and scroll horizontally when there are more subscriptions than fit.
-- Header actions and cost breakdown now have visible outlined affordances and keyboard focus; the panel also accepts `s` for Settings.
+- Provider choices are compact logos with hover/focus names, and the panel scrolls more responsively without a permanent scrollbar.
+- Settings uses one row per provider with adjacent Enabled and In bar switches. Primary mode has been removed; In bar controls cycle membership as well as normal bar visibility.
+- Details shows token use by model before any optional API-price estimate, and the history chart is a labelled line across recorded days.
 - Status cards always show the collector's status and show its help text when available, preventing a blank error card.
 
 ### Added
