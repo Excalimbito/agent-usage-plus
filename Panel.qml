@@ -241,18 +241,26 @@ Panel {
     selectedProviderId = providers[wrapped].providerId
   }
 
-  // Keyboard h/l selection must also reveal the selected chip. Without this,
-  // a long provider list could change the data below while leaving the
-  // highlight off-screen in the horizontal selector.
+  // Keyboard h/l selection must also reveal the selected chip. The selector
+  // wraps when there are more providers than fit on one line, so reveal the
+  // selected logo vertically instead of maintaining a second horizontal
+  // scroll surface inside the panel.
   function ensureSelectedChipVisible() {
-    if (!providerChipRepeater || providerSwitch.width <= 0) return
+    if (!root.opened || !providerChipRepeater || !providerSwitch || !panelFlick || !column)
+      return
     var chip = providerChipRepeater.itemAt(providerIndex)
-    if (!chip) return
-    var nextX = providerSwitch.contentX
-    if (chip.x < nextX) nextX = chip.x
-    else if (chip.x + chip.width > nextX + providerSwitch.width)
-      nextX = chip.x + chip.width - providerSwitch.width
-    providerSwitch.contentX = clamp(nextX, 0, Math.max(0, providerSwitch.contentWidth - providerSwitch.width))
+    if (!chip || chip.width <= 0 || chip.height <= 0 || panelFlick.height <= 0) return
+
+    var point = chip.mapToItem(column, 0, 0)
+    var top = point.y
+    var bottom = top + chip.height
+    var margin = Style.space(10)
+    var viewportTop = panelFlick.contentY + margin
+    var viewportBottom = panelFlick.contentY + panelFlick.height - margin
+    var nextY = panelFlick.contentY
+    if (top < viewportTop) nextY = top - margin
+    else if (bottom > viewportBottom) nextY = bottom - panelFlick.height + margin
+    panelFlick.contentY = clamp(nextY, 0, Math.max(0, panelFlick.contentHeight - panelFlick.height))
   }
 
   // Opening a specific provider's bar group should show that provider, not
@@ -1048,11 +1056,30 @@ Panel {
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height
-        maximumFlickVelocity: 4800
-        flickDeceleration: 900
+        maximumFlickVelocity: 10000
+        flickDeceleration: 4200
         // The normal view fits without scrolling. Details and Settings still
         // respond to wheel, touchpad, drag, and keyboard, without a permanent
-        // scrollbar competing with the information.
+        // scrollbar competing with the information. WheelHandler below makes
+        // the discrete wheel step explicit instead of relying on the small
+        // platform default used by Flickable.
+
+        WheelHandler {
+          id: panelWheel
+
+          onWheel: function(event) {
+            var delta = Number(event.pixelDelta.y || 0)
+            if (delta === 0) delta = Number(event.angleDelta.y || 0) / 120 * Style.space(72)
+            if (delta === 0 || panelFlick.contentHeight <= panelFlick.height) return
+
+            panelFlick.cancelFlick()
+            panelFlick.contentY = root.clamp(
+              panelFlick.contentY - delta * 1.7,
+              0,
+              Math.max(0, panelFlick.contentHeight - panelFlick.height))
+            event.accepted = true
+          }
+        }
 
         Column {
           id: column
@@ -1079,13 +1106,15 @@ Panel {
             trailingControl: Component {
               Row {
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: Style.space(8)
+                spacing: Style.space(6)
 
                 PanelActionButton {
                   iconText: "󰒓"
                   tooltipText: root.settingsOpen ? "Close settings (s)" : "Settings (s)"
                   foreground: root.foreground
                   fontFamily: root.fontFamily
+                  size: Style.space(28)
+                  fontSize: Style.font.body
                   bordered: true
                   focusable: true
                   onClicked: root.toggleSettings()
@@ -1097,6 +1126,8 @@ Panel {
                   tooltipText: root.expanded ? "Hide details (e)" : "Show detailed history and all-provider models (e)"
                   foreground: root.foreground
                   fontFamily: root.fontFamily
+                  size: Style.space(28)
+                  fontSize: Style.font.body
                   bordered: true
                   focusable: true
                   onClicked: root.toggleExpanded()
@@ -1160,32 +1191,59 @@ Panel {
           }
 
           // ---------- Provider switch ----------
-          // A wrapping rail makes every enabled provider a direct choice.
-          // It avoids both the hidden horizontal scroll and the redundant
-          // "1 of N" navigation controls that used to crowd the popup.
-          Flow {
+          // Providers are represented by fixed-size marks rather than text
+          // pills. This keeps the selector useful as the provider count
+          // grows; the full name is available on hover and keyboard focus.
+          // Grid has an explicit height because Flow's implicitHeight is not
+          // reliable while a Repeater model is being rebuilt during refresh.
+          Grid {
             id: providerSwitch
             visible: root.providers.length > 1
             width: parent.width
-            spacing: Style.space(10)
+            spacing: Style.space(6)
+            readonly property real chipSize: Math.max(
+              Style.space(32),
+              Math.min(Style.space(42),
+                (width - spacing * Math.max(0, root.providers.length - 1))
+                  / Math.max(1, root.providers.length)))
+            readonly property int columnCount: Math.max(1, Math.min(root.providers.length,
+              Math.floor((width + spacing) / (chipSize + spacing))))
+            readonly property int rowCount: Math.ceil(root.providers.length / columnCount)
+            columns: columnCount
+            height: rowCount * chipSize + Math.max(0, rowCount - 1) * spacing
 
             Repeater {
               id: providerChipRepeater
               model: root.providers
 
               Button {
+                id: providerChip
                 required property var modelData
                 required property int index
 
-                width: Math.min(Style.space(160), Math.max(Style.space(118), implicitWidth + Style.space(22)))
-                text: root.providerChipLabel(modelData)
+                width: providerSwitch.chipSize
+                height: providerSwitch.chipSize
+                tooltipText: String(modelData && (modelData.providerName || modelData.providerId) || "Provider")
                 selected: index === root.providerIndex
                 hasCursor: root.cursorActive && index === root.providerIndex
-                bordered: true
+                bordered: false
                 foreground: root.foreground
                 fontFamily: root.fontFamily
-                fontSize: Style.font.bodySmall
-                verticalPadding: Style.spacing.controlPaddingY
+                horizontalPadding: 0
+                verticalPadding: 0
+                leftPadding: 0
+                rightPadding: 0
+                topPadding: 0
+                bottomPadding: 0
+
+                ProviderMark {
+                  anchors.centerIn: parent
+                  width: Math.min(parent.width - Style.space(10), Style.space(24))
+                  height: width
+                  provider: providerChip.modelData
+                  opacity: providerChip.selected || providerChip.hasCursor ? 1.0 : 0.82
+                }
+
                 onClicked: {
                   root.cursorActive = true
                   root.selectProvider(index)
