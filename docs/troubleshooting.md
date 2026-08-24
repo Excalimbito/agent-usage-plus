@@ -18,7 +18,7 @@ Check the three deliberately different visibility states:
 
 - `enabled: false` hides the provider everywhere and excludes it from refresh.
 - `enabled: true` with `showInBar: false` hides only its bar meter; it remains selectable in the panel.
-- `barMode: "primary"` and `"cycle"` intentionally show one bar meter, while the panel keeps every enabled provider.
+- `barMode: "cycle"` intentionally shows one rotating bar meter, while the panel keeps every enabled provider.
 
 In `barMode: "all"`, more than three eligible providers are collapsed into a `+N` bar indicator to prevent the bar from growing without bound. Click it to open the complete provider switcher. A provider with no usage record yet is also absent until the next collector refresh produces usable data.
 

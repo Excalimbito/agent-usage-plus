@@ -2310,7 +2310,7 @@ Panel {
 
             Text {
               width: parent.width
-              text: "Settings write through `omarchy bar set` and apply immediately — no restart needed."
+              text: "Settings write through `omarchy bar set` and apply immediately. No restart needed."
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption

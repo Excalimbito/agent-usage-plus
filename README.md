@@ -244,22 +244,17 @@ only adds the meter and the spent-of-funded line under the real figure.
   the icon falls back to the module's own glyph instead of an
   empty-looking gap, so it stays reachable.
 - `barMode` (see Settings) changes what the bar row itself shows, not the
-  panel's chip switcher, which always lists every `enabled` subscription
+  panel's icon switcher, which always lists every `enabled` subscription
   regardless of `barMode`:
-  - `all` (default): one meter per subscription with `showInBar` on — same
-    as before this setting existed.
-  - `primary`: exactly one meter, for the subscription marked `primary` (or
-    the fullest one if none is). Clicking it opens the full panel as usual.
+  - `all` (default): one meter per subscription with `showInBar` on.
   - `cycle`: exactly one meter, rotating automatically every
     `barCycleIntervalSec`. Middle-click in this mode manually advances to
-    the next subscription's meter and resets the rotation timer, instead of
-    advancing the panel's tab selection — the two are independent, so
-    middle-clicking through the bar in `cycle` mode never changes which tab
-    the panel opens to, and switching tabs in the panel never changes what
-    the bar cycles through.
+    the next subscription's meter and resets the rotation timer. This does
+    not change the provider currently selected in the panel.
 - Panel: `h`/`l` switch subscription, `j`/`k` scroll, `r` or Enter refresh,
-  `e` or the chevron button next to the provider name expands/collapses the
-  combined "tokens by model" section for every enabled subscription, the
+  `e` or the chevron button next to the provider name opens/closes the
+  selected provider's token, API-price, and history details. The provider
+  switch uses compact logos; hover or keyboard focus reveals each name. The
   gear button next to it opens/closes the SETTINGS section (opening one
   closes the other), Tab moves to the neighboring bar panel, Esc closes.
 - IPC: `omarchy-shell io.github.viganogabriele.agent-usage-plus <open|close|toggle|refresh|next>`.
@@ -268,20 +263,15 @@ only adds the meter and the spent-of-funded line under the real figure.
 
 Settings live in the widget's entry in `~/.config/omarchy/shell.json`.
 `refreshIntervalSec`, `warnThresholdPct`, `criticalThresholdPct`, `barMode`,
-`barCycleIntervalSec`, and each provider's `enabled`/`showInBar`/`primary`
+`barCycleIntervalSec`, and each provider's `enabled`/`showInBar`
 are also editable from inside the panel itself: click the gear button next
-to the provider name and a SETTINGS section replaces the expanded data view
-with a toggle trio per subscription, a three-way switch and stepper for the
-bar display mode, and a stepper/sliders for the rest — a disabled
-subscription's "show in bar"/"primary" toggles grey out, since neither has
-any effect while the subscription itself is off, and the cycle-interval
-stepper only shows up while `barMode` is `cycle`. Every control there shells
-out to the
-same `omarchy bar set` command described below — there's no separate
-shell.json-writing code path — so a change made from the panel takes effect
-immediately (no restart) and survives a shell restart exactly like a change
-made from a terminal. The CLI stays around for scripting and dotfiles; use
-whichever is convenient.
+to the provider name. Settings replaces the details view with one concise
+row per provider and adjacent Enabled and In bar switches. The bar mode is
+either All providers or Cycle providers. In bar controls both the normal bar
+row and the cycle membership. The interval control only appears in Cycle
+mode. Every control calls the same `omarchy bar set` command described below,
+so changes apply immediately and survive a shell restart. The CLI remains
+useful for scripting and dotfiles.
 
 The top-level keys can be set with
 `omarchy bar set io.github.viganogabriele.agent-usage-plus <key> <value>`:
@@ -295,7 +285,7 @@ The top-level keys can be set with
 | `syncDeviceId` | hostname | Stable device name inside the snapshot |
 | `warnThresholdPct` | `75` | Usage % at which meters switch to the warn color (1-99) |
 | `criticalThresholdPct` | `90` | Usage % at which meters switch to the critical (urgent) color (1-100) |
-| `barMode` | `"all"` | `"all"`, `"primary"` (one meter), or `"cycle"` (one meter, rotating) |
+| `barMode` | `"all"` | `"all"` (one meter per included provider), or `"cycle"` (one rotating meter) |
 | `barCycleIntervalSec` | `8` | Seconds between rotations when `barMode` is `"cycle"` (3-120) |
 | `historyDays` | `30` | Documents how much daily history (7-90) a collector is expected to write into `recentDays`. The panel never fetches more than what's already in a record — this only tells collector authors what window to aim for; see [`docs/collector-contract.md`](docs/collector-contract.md). |
 
@@ -322,31 +312,23 @@ edit `shell.json` directly):
 
 ```bash
 omarchy bar set io.github.viganogabriele.agent-usage-plus providers '{
-  "claude": { "enabled": true, "showInBar": true, "primary": true },
+  "claude": { "enabled": true, "showInBar": true },
   "codex": { "enabled": false },
   "fireworks": { "enabled": true, "showInBar": false }
 }' --json
 ```
 
 `enabled` defaults to `true` for every discovered agent; set it to `false` to
-hide a subscription everywhere — the bar, the panel's subscription switch,
+hide a subscription everywhere: the bar, the panel's subscription switch,
 and the records the update command regenerates.
 
-`showInBar` defaults to `true` and only controls the bar meters: set it to
-`false` to keep a provider out of the bar row while leaving it enabled —
-it stays selectable as a chip in the panel's subscription switch, just
-without its own slot in the bar. It has no effect on a provider that is
+`showInBar` defaults to `true` and controls both the bar meters and cycle
+membership. Set it to `false` to keep a provider out of the bar row while
+leaving it enabled. It stays selectable as a logo in the panel's provider
+switch, just without its own slot in the bar. It has no effect on a provider that is
 already `enabled: false`. Omitting `showInBar` entirely (including in a
 `shell.json` written before this option existed) behaves exactly like
 `showInBar: true`.
-
-`primary` defaults to `false`/unset and only matters while `barMode` is
-`"primary"`: the first provider with `primary: true` (by provider order) is
-the one meter shown in the bar. With no provider marked `primary`, the one
-with the highest current usage percentage among the `showInBar` set is
-shown instead. Setting a provider's `primary` to `true` from the panel
-clears it from every other provider in the same write, since only one can
-ever apply.
 
 With `syncMode` on, every `*.json` snapshot in `syncDir` is merged, so today,
 the last 7 days, and the all-time totals cover every machine you code on —

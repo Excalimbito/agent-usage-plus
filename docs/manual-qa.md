@@ -6,9 +6,8 @@ Automated tests cover extracted logic and record validation. They cannot show cl
 
 ## Bar
 
-- [ ] With one, two, and three enabled providers that have data and `showInBar: true`, each meter has a readable mark, meter, and percentage. A primary meter with a weekly limit also has the small weekly tick.
+- [ ] With one, two, and three enabled providers that have data and `showInBar: true`, each meter has a readable mark, meter, and percentage. A provider with a weekly limit also has the small weekly tick.
 - [ ] With four or more eligible providers in `barMode: "all"`, the bar shows at most three full meter groups followed by a `+N` indicator. Hovering it explains that the remaining subscriptions are in the panel; clicking it opens the full provider list rather than creating an inert gap.
-- [ ] In `barMode: "primary"`, exactly one eligible meter appears: the marked Primary provider, or the fullest eligible provider when none is marked.
 - [ ] In `barMode: "cycle"`, one meter rotates at the configured interval. Middle-click advances it immediately and the next automatic change waits a full interval. Middle-click must not change the panel's selected tab.
 - [ ] `showInBar: false` hides only the meter, not the provider's panel tab. `enabled: false` hides it from both and stops collector refreshes for it.
 - [ ] When every known provider is hidden from the bar or disabled, the module glyph remains visible and opens settings. On a machine with no discovered record at all, the widget correctly stays absent.
@@ -16,17 +15,17 @@ Automated tests cover extracted logic and record validation. They cannot show cl
 
 ## Panel hierarchy and interaction
 
-- [ ] The hero has two distinct outlined actions: gear for Settings and chevron for the all-subscription model view. Their tooltips name the action and its shortcut; `s` toggles Settings and `e` toggles the model view. Opening either closes the other.
-- [ ] With several providers, subscription chips stay readable at the panel's normal width. Extra chips scroll horizontally instead of shrinking every provider name into an ambiguous label. `h`/`l` still select every provider.
+- [ ] The hero has two equal outlined actions: gear for Settings and chevron for Details. Their tooltips name the action and shortcut; `s` toggles Settings and `e` toggles Details. Opening either closes the other.
+- [ ] With several providers, the switch shows compact logos instead of text pills. Hover and keyboard focus reveal each full name. `h`/`l` still select every provider, including a logo on a wrapped row.
 - [ ] Compact view prioritizes error/help, limits or balance, daily tokens, then model tokens. It should not open scrolled partway down or clip content at 1366x768 and 1920x1080.
-- [ ] Expanded view includes the cross-provider model table and the selected provider's 24h/7d/30d/90d chart. Selecting a range only re-slices existing data; it must not run a collector. A range beyond the record's history says so explicitly instead of drawing a misleading chart.
-- [ ] Cost records show an `EST. API COST` section labelled as a derived API estimate, never as a bill. When a per-model breakdown is present, its outlined disclosure is visible, toggles open/closed, and remains readable with a long period label and a large dollar value. A record without `cost` leaves no blank separator or empty section.
+- [ ] Details first show the selected provider's token use by model. If known, each row's right column is labelled API price. The derived total follows this table and says that it is not a bill or subscription price.
+- [ ] The history is a line chart across every recorded day. It shows a 0/50/100% token scale and start, middle, and end dates without a fake range selector.
 - [ ] `r` and Enter refresh, `j`/`k` scroll, Tab moves to the neighbouring panel, and Esc closes. Tab can focus the gear, expansion chevron, and cost disclosure; Enter, Space, and Return activate each.
 
 ## Settings
 
-- [ ] Open the gear: provider Enabled, Show in bar, and Primary controls do not clip or overlap at the normal panel width. Disabled providers dim the dependent controls. Primary selects only one provider at a time.
-- [ ] Switch among All, Primary, and Cycle and verify the copy matches the bar. The cycle interval appears only in Cycle mode and honours 3--120 seconds.
+- [ ] Open the gear: every provider occupies one row; its name, Enabled switch, and In bar switch do not clip or overlap. Disabled providers dim In bar.
+- [ ] Switch between All providers and Cycle providers and verify the copy matches the bar. In bar is also the cycle membership. The cycle interval appears only in Cycle mode and honours 3--120 seconds.
 - [ ] Change refresh interval and warn/critical thresholds, then confirm values survive `omarchy restart shell`. Settings must apply without a restart because the panel writes via `omarchy bar set`, not directly to `shell.json`.
 - [ ] Confirm an invalid externally-written threshold pair (`warn >= critical`) never crashes the panel; it should skip the warn band until the pair is corrected.
 
