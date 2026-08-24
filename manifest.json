@@ -27,53 +27,43 @@
       "providers": {
         "claude": {
           "enabled": true,
-          "showInBar": true,
-          "primary": false
+          "showInBar": true
         },
         "codex": {
           "enabled": true,
-          "showInBar": true,
-          "primary": false
+          "showInBar": true
         },
         "fireworks": {
           "enabled": false,
-          "showInBar": false,
-          "primary": false
+          "showInBar": false
         },
         "openrouter": {
           "enabled": false,
-          "showInBar": false,
-          "primary": false
+          "showInBar": false
         },
         "deepseek": {
           "enabled": false,
-          "showInBar": false,
-          "primary": false
+          "showInBar": false
         },
         "gemini": {
           "enabled": false,
-          "showInBar": false,
-          "primary": false
+          "showInBar": false
         },
         "cursor": {
           "enabled": false,
-          "showInBar": false,
-          "primary": false
+          "showInBar": false
         },
         "kimi": {
           "enabled": false,
-          "showInBar": false,
-          "primary": false
+          "showInBar": false
         },
         "xai": {
           "enabled": false,
-          "showInBar": false,
-          "primary": false
+          "showInBar": false
         },
         "zai": {
           "enabled": false,
-          "showInBar": false,
-          "primary": false
+          "showInBar": false
         }
       },
       "barMode": "all",
@@ -94,11 +84,10 @@
         "label": "Bar display mode",
         "options": [
           "all",
-          "primary",
           "cycle"
         ],
         "defaultValue": "all",
-        "description": "all: one meter per provider shown in the bar. primary: one meter for the provider marked primary (or the fullest one). cycle: one meter, rotating automatically every barCycleIntervalSec."
+        "description": "all: show every provider marked for the bar. cycle: rotate through providers marked for cycling every barCycleIntervalSec."
       },
       {
         "key": "barCycleIntervalSec",

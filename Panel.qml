@@ -160,30 +160,9 @@ Panel {
     return !providers[id] || providers[id].enabled !== false
   }
 
-  // One line of plain-language context per shipped provider, so someone who
-  // has never touched (say) Fireworks can tell what it is from the settings
-  // list without leaving the panel. Unknown ids (a third-party collector)
-  // get no subtitle rather than a guessed-at description.
-  readonly property var providerDescriptions: ({
-    claude: "Anthropic's Claude Code CLI — subscription usage and limits.",
-    codex: "OpenAI's Codex CLI — subscription usage and limits.",
-    fireworks: "Fireworks AI — a separate, prepaid inference account, billed by the token."
-  })
-  function providerDescription(id) {
-    return root.providerDescriptions[id] || ""
-  }
-
   function providerSettingShowInBar(id) {
     var providers = usage.settings && usage.settings.providers ? usage.settings.providers : {}
     return !providers[id] || providers[id].showInBar !== false
-  }
-
-  // Unlike enabled/showInBar, `primary` defaults to false/unset — only used
-  // by `barMode: "primary"` (issue #5), and only one provider's toggle
-  // should ever read true at a time (see usage.setProviderPrimary()).
-  function providerSettingPrimary(id) {
-    var providers = usage.settings && usage.settings.providers ? usage.settings.providers : {}
-    return !!(providers[id] && providers[id].primary === true)
   }
 
   // One row per provider this machine knows about, whether or not it is
@@ -208,8 +187,7 @@ Panel {
         providerId: id,
         providerName: String(record.name || record.id),
         enabled: providerSettingEnabled(id),
-        showInBar: providerSettingShowInBar(id),
-        primary: providerSettingPrimary(id)
+        showInBar: providerSettingShowInBar(id)
       })
     }
     var configured = usage.settings && usage.settings.providers ? usage.settings.providers : {}
@@ -220,8 +198,7 @@ Panel {
         providerId: pid,
         providerName: pid,
         enabled: providerSettingEnabled(pid),
-        showInBar: providerSettingShowInBar(pid),
-        primary: providerSettingPrimary(pid)
+        showInBar: providerSettingShowInBar(pid)
       })
     }
     rows.sort(function(a, b) { return a.providerId < b.providerId ? -1 : (a.providerId > b.providerId ? 1 : 0) })
@@ -1034,7 +1011,7 @@ Panel {
     // A dashboard needs room for labels and numbers to breathe. The previous
     // narrow panel regularly truncated the cost source and model names,
     // making otherwise correct information look unfinished.
-    contentWidth: panel.fittedContentWidth(root.settingsOpen ? Style.space(720) : Style.space(430))
+    contentWidth: panel.fittedContentWidth(root.settingsOpen ? Style.space(840) : Style.space(430))
     // Keep the everyday Claude/Codex view on screen. Details can be longer,
     // but making the default popup short turned even ordinary mouse-wheel
     // scrolling into needless work.
@@ -1973,117 +1950,131 @@ Panel {
             }
 
             // ----- Per-provider controls -----
-            // Settings deliberately use a wide, wrapping card grid. The old
-            // one-provider-per-row layout made ten optional providers feel
-            // like an error log and required a painfully long scroll.
-            Flow {
-              id: providerSettingsGrid
+            // A single compact row per provider keeps the list scannable even
+            // when several collectors are installed. The switches stay in a
+            // fixed column so the eye can compare providers without hunting
+            // through cards or provider-specific prose.
+            Column {
+              id: providerSettingsList
               width: parent.width
-              spacing: Style.space(14)
-              readonly property real cellWidth: (width - spacing * 2) / 3
+              spacing: Style.space(8)
+              readonly property real contentWidth: width - Style.space(28)
+              readonly property real providerColumnWidth: Math.min(300, Math.max(210, contentWidth * 0.36))
+              readonly property real controlColumnWidth: contentWidth - providerColumnWidth - Style.space(18)
+              readonly property real controlCellWidth: (controlColumnWidth - Style.space(24)) / 2
+
+              Row {
+                x: Style.space(14)
+                width: parent.width - Style.space(28)
+                height: Style.space(22)
+                spacing: Style.space(18)
+
+                Item { width: providerSettingsList.providerColumnWidth; height: parent.height }
+
+                Repeater {
+                  model: ["Enabled", "In bar"]
+
+                  Item {
+                    required property string modelData
+                    width: providerSettingsList.controlCellWidth
+                    height: parent.height
+
+                    Text {
+                      anchors.centerIn: parent
+                      text: modelData
+                      color: root.dim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      font.bold: true
+                    }
+                  }
+                }
+              }
 
               Repeater {
                 model: root.settingsProviders
 
                 Rectangle {
-                  id: providerSettingsCard
+                  id: providerSettingsRow
                   required property var modelData
-                  width: providerSettingsGrid.cellWidth
-                  implicitHeight: providerSettingsContent.implicitHeight + Style.space(24)
+                  width: providerSettingsList.width
+                  height: Style.space(62)
                   color: root.alpha(root.foreground, 0.035)
                   border.width: 1
                   border.color: root.alpha(root.foreground, 0.12)
                   radius: Style.cornerRadius
 
-                  Column {
-                    id: providerSettingsContent
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.leftMargin: Style.space(12)
-                    anchors.rightMargin: Style.space(12)
-                    spacing: Style.space(8)
+                  Row {
+                    anchors.fill: parent
+                    anchors.leftMargin: Style.space(14)
+                    anchors.rightMargin: Style.space(14)
+                    spacing: Style.space(18)
 
-                    Text {
-                      text: providerSettingsCard.modelData.providerName
-                      color: root.foreground
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.bodySmall
-                      font.bold: true
-                      elide: Text.ElideRight
-                      width: parent.width
-                    }
-
-                    Text {
-                      text: root.providerDescription(providerSettingsCard.modelData.providerId)
-                      visible: text !== ""
-                      color: root.dim
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
-                      width: parent.width
-                      wrapMode: Text.WordWrap
-                    }
-
-                    Flow {
-                      width: parent.width
-                      spacing: Style.space(12)
+                    Item {
+                      width: providerSettingsList.providerColumnWidth
+                      height: parent.height
 
                       Row {
-                        spacing: Style.space(6)
-                        ToggleSwitch {
-                          checked: providerSettingsCard.modelData.enabled
-                          anchors.verticalCenter: parent.verticalCenter
-                          foreground: root.foreground
-                          accent: Color.accent
-                          onToggled: usage.setProviderEnabled(providerSettingsCard.modelData.providerId, !providerSettingsCard.modelData.enabled)
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Style.space(10)
+
+                        ProviderMark {
+                          width: Style.space(24)
+                          height: Style.space(24)
+                          provider: providerSettingsRow.modelData
                         }
+
                         Text {
-                          text: "Enabled"
-                          anchors.verticalCenter: parent.verticalCenter
-                          color: root.dim
+                          width: parent.width - Style.space(34)
+                          text: providerSettingsRow.modelData.providerName
+                          color: root.foreground
                           font.family: root.fontFamily
-                          font.pixelSize: Style.font.caption
+                          font.pixelSize: Style.font.bodySmall
+                          font.bold: true
+                          elide: Text.ElideRight
+                          anchors.verticalCenter: parent.verticalCenter
                         }
                       }
+                    }
+
+                    Item {
+                      width: providerSettingsList.controlColumnWidth
+                      height: parent.height
 
                       Row {
-                        spacing: Style.space(6)
-                        enabled: providerSettingsCard.modelData.enabled
-                        opacity: enabled ? 1.0 : 0.45
-                        ToggleSwitch {
-                          checked: providerSettingsCard.modelData.showInBar
-                          anchors.verticalCenter: parent.verticalCenter
-                          foreground: root.foreground
-                          accent: Color.accent
-                          onToggled: usage.setProviderShowInBar(providerSettingsCard.modelData.providerId, !providerSettingsCard.modelData.showInBar)
-                        }
-                        Text {
-                          text: "In bar"
-                          anchors.verticalCenter: parent.verticalCenter
-                          color: root.dim
-                          font.family: root.fontFamily
-                          font.pixelSize: Style.font.caption
-                        }
-                      }
+                        anchors.fill: parent
+                        spacing: Style.space(24)
 
-                      Row {
-                        spacing: Style.space(6)
-                        enabled: providerSettingsCard.modelData.enabled
-                        opacity: enabled ? 1.0 : 0.45
-                        ToggleSwitch {
-                          checked: providerSettingsCard.modelData.primary
-                          anchors.verticalCenter: parent.verticalCenter
-                          foreground: root.foreground
-                          accent: Color.accent
-                          onToggled: usage.setProviderPrimary(providerSettingsCard.modelData.providerId, !providerSettingsCard.modelData.primary)
+                        Item {
+                          width: providerSettingsList.controlCellWidth
+                          height: parent.height
+
+                          ToggleSwitch {
+                            anchors.centerIn: parent
+                            checked: providerSettingsRow.modelData.enabled
+                            foreground: root.foreground
+                            accent: Color.accent
+                            onToggled: usage.setProviderEnabled(providerSettingsRow.modelData.providerId, !providerSettingsRow.modelData.enabled)
+                          }
                         }
-                        Text {
-                          text: "Primary"
-                          anchors.verticalCenter: parent.verticalCenter
-                          color: root.dim
-                          font.family: root.fontFamily
-                          font.pixelSize: Style.font.caption
+
+                        Item {
+                          width: providerSettingsList.controlCellWidth
+                          height: parent.height
+                          enabled: providerSettingsRow.modelData.enabled
+                          opacity: enabled ? 1.0 : 0.42
+
+                          ToggleSwitch {
+                            anchors.centerIn: parent
+                            checked: providerSettingsRow.modelData.showInBar
+                            foreground: root.foreground
+                            accent: Color.accent
+                            onToggled: usage.setProviderShowInBar(providerSettingsRow.modelData.providerId, !providerSettingsRow.modelData.showInBar)
+                          }
                         }
+
                       }
                     }
                   }
@@ -2117,8 +2108,8 @@ Panel {
                 width: parent.width
                 spacing: Style.spacing.md
 
-                readonly property var options: ["all", "primary", "cycle"]
-                readonly property var optionLabels: ({ all: "All", primary: "Primary", cycle: "Cycle" })
+                readonly property var options: ["all", "cycle"]
+                readonly property var optionLabels: ({ all: "All providers", cycle: "Cycle providers" })
                 readonly property real cellWidth: (width - spacing * (options.length - 1)) / options.length
 
                 Repeater {
@@ -2141,7 +2132,9 @@ Panel {
 
               Text {
                 width: parent.width
-                text: "All: one meter per provider shown in the bar. Primary: one meter — the provider marked Primary above, or the fullest one. Cycle: one meter, rotating automatically."
+                text: usage.barMode === "cycle"
+                  ? "The bar rotates through providers marked In bar below."
+                  : "The bar shows every provider marked In bar below."
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption

@@ -329,7 +329,6 @@ Item {
   // always the same "enabled and showInBar" set `selectBarProviders`
   // already produced for the "all" case:
   //   - "all": every eligible provider gets a meter (today's behavior).
-  //   - "primary": exactly one, chosen by Aggregate.selectPrimaryProvider.
   //   - "cycle": exactly one, chosen by `barCycleIndex` below and rotated
   //     by cycleTimer / cycleNext(). `barCycleIndex` is intentionally a
   //     separate property from Panel.qml's `providerIndex` (which tab the
@@ -338,7 +337,7 @@ Item {
   //     clicking through panel tabs also change what the bar cycles to.
   readonly property string barMode: {
     var v = setting("barMode", "all")
-    return (v === "primary" || v === "cycle") ? v : "all"
+    return v === "cycle" ? "cycle" : "all"
   }
   readonly property int barCycleIntervalSec: {
     var v = Number(setting("barCycleIntervalSec", 8))
@@ -354,10 +353,6 @@ Item {
 
   property var barProviders: {
     var list = root.showInBarList
-    if (root.barMode === "primary") {
-      var primary = Aggregate.selectPrimaryProvider(list, settings)
-      return primary ? [primary] : []
-    }
     if (root.barMode === "cycle") {
       if (list.length === 0) return []
       var idx = ((root.barCycleIndex % list.length) + list.length) % list.length
@@ -496,31 +491,8 @@ Item {
 
   function setProviderEnabled(id, value) { setProviderField(id, "enabled", !!value) }
   function setProviderShowInBar(id, value) { setProviderField(id, "showInBar", !!value) }
-
-  // `primary` behaves like a radio button, not an independent toggle:
-  // `barMode: "primary"` only reads the *first* provider marked
-  // `primary: true` (see Aggregate.selectPrimaryProvider), so leaving a
-  // stale `true` on a previously-primary provider would silently do
-  // nothing until someone noticed the wrong meter never changed. Turning
-  // one provider's `primary` on clears it from every other provider in the
-  // same write; turning it off just clears that one provider.
-  function setProviderPrimary(id, value) {
-    if (String(id || "") === "") return
-    var providers = {}
-    var current = settings && settings.providers ? settings.providers : {}
-    for (var pid in current) providers[pid] = Object.assign({}, current[pid])
-    if (!!value) {
-      for (var otherId in providers) providers[otherId].primary = (otherId === id)
-      if (!providers[id]) providers[id] = { primary: true }
-    } else {
-      if (!providers[id]) providers[id] = {}
-      providers[id].primary = false
-    }
-    writeSetting("providers", JSON.stringify(providers))
-  }
-
   function setBarMode(value) {
-    var v = (value === "primary" || value === "cycle") ? value : "all"
+    var v = value === "cycle" ? "cycle" : "all"
     writeSetting("barMode", JSON.stringify(v))
   }
 
