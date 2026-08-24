@@ -79,6 +79,7 @@ Panel {
 
   readonly property var limits: limitWindows(provider)
   readonly property var models: modelRows(provider)
+  readonly property var detailModels: expanded ? detailModelRows(provider) : []
   // Only computed while expanded: collapsed behavior/output must stay
   // exactly what it was before this property existed.
   readonly property var allModels: expanded ? allModelRows(providers) : []
@@ -88,6 +89,8 @@ Panel {
   // rates" estimate. Claude and Codex can populate it from local transcript
   // history when the optional cost decorator is installed.
   readonly property var cost: provider ? (provider.cost || null) : null
+  readonly property bool costHasModelBreakdown: !!cost && Array.isArray(cost.byModel)
+    && cost.byModel.length > 0
   // Session-only, like `expanded`/`settingsOpen`: whether the "Est. API
   // cost" row's per-model breakdown is unfolded. Reset per provider switch
   // so switching subscriptions doesn't leave a stale breakdown open under
@@ -451,6 +454,12 @@ Panel {
     return dayName(date)
   }
 
+  function shortHistoryDate(date) {
+    var parsed = new Date(String(date || "") + "T00:00:00")
+    if (isNaN(parsed.getTime())) return String(date || "")
+    return (parsed.getMonth() + 1) + "/" + parsed.getDate()
+  }
+
   // The switch deliberately gives every provider the same hit target. A
   // plain Text inside qs.Ui.Button does not elide by itself, so cap its
   // visible label here instead of letting a long collector-supplied name
@@ -486,10 +495,18 @@ Panel {
 
   function costSummaryText(cost) {
     if (!cost) return ""
-    // The source belongs in the explanatory line below. Keeping this short
-    // gives the dollar value a stable, readable place instead of squeezing
-    // both into one truncated technical sentence.
-    return cost.incomplete ? "Partial total" : "Estimated total"
+    // Keep the number itself short. The line below explains exactly what it
+    // means, so the dollar value never gets mistaken for subscription billing.
+    return cost.incomplete ? "Partial API price" : "Estimated API price"
+  }
+
+  function costPeriodText(cost) {
+    var period = String(cost && cost.period || "")
+    if (period === "24h") return "the last 24 hours"
+    if (period === "7d") return "the last 7 days"
+    if (period === "30d") return "the last 30 days"
+    if (period === "90d") return "the last 90 days"
+    return period === "" ? "the recorded transcript history" : period
   }
 
   function costHelpText(cost) {
@@ -499,14 +516,29 @@ Panel {
     if (cost.incomplete) {
       var names = []
       for (var i = 0; i < unknown.length; i++) names.push(usage.friendlyModelName(unknown[i]))
-      return "API-equivalent estimate for " + name + "; excludes "
-        + (names.length === 1 ? "unpriced model: " : "unpriced models: ")
-        + names.join(", ") + ". Not a subscription bill."
+      return "Estimated API price for tokens recorded in " + name + " over "
+        + costPeriodText(cost) + ". Excludes "
+        + (names.length === 1 ? "the unpriced model " : "unpriced models ")
+        + (names.length > 0 ? names.join(", ") : "not-yet-priced models")
+        + ". This is not your subscription price or an invoice."
     }
     var priced = Number(cost.pricedTokens || 0)
     var coverage = priced > 0 ? " from " + usage.formatTokenCount(priced) + " transcript tokens" : ""
-    return "API-equivalent cost for " + name + coverage
+    return "What " + costPeriodText(cost) + " of recorded tokens in " + name
+      + " would cost at published API rates" + coverage
       + ". It is not subscription usage or a bill."
+  }
+
+  function apiCostForModel(row) {
+    if (!row || !root.cost || !Array.isArray(root.cost.byModel)) return null
+    var modelId = String(row.id || "")
+    var friendly = String(row.name || "")
+    for (var i = 0; i < root.cost.byModel.length; i++) {
+      var entry = root.cost.byModel[i] || {}
+      if (String(entry.model || "") === modelId
+        || usage.friendlyModelName(entry.model) === friendly) return Number(entry.usd || 0)
+    }
+    return null
   }
 
   function dayTooltip(day, today) {
@@ -546,6 +578,7 @@ Panel {
       var cacheRead = Number(bucket.cacheReadInputTokens || 0)
       var cacheWrite = Number(bucket.cacheCreationInputTokens || 0)
       rows.push({
+        id: String(id),
         name: usage.friendlyModelName(id),
         total: input + output + cacheRead + cacheWrite,
         input: input,
@@ -564,6 +597,10 @@ Panel {
     // and cost information below the fold; the detailed view retains the
     // complete cross-provider table.
     return modelUsageRows(p ? (p.modelUsage || {}) : {}, 3)
+  }
+
+  function detailModelRows(p) {
+    return modelUsageRows(p ? (p.modelUsage || {}) : {}, 12)
   }
 
   // Every enabled provider's models in one table, not just the currently
@@ -1343,6 +1380,99 @@ Panel {
             }
           }
 
+          // ---------- Token usage by model ----------
+          // Details starts with the useful accounting view. Keep it tied to
+          // the selected provider so the optional API price on each row cannot
+          // accidentally be read as a total for every subscription at once.
+          BorderSurface {
+            id: detailModelSection
+            visible: root.expanded && root.detailModels.length > 0
+            width: parent.width
+            implicitHeight: detailModelContent.implicitHeight + Style.space(28)
+            color: root.alpha(root.foreground, 0.035)
+            borderSpec: Border.flat(root.alpha(root.foreground, 0.12), 1)
+            radius: Style.cornerRadius
+
+            Column {
+              id: detailModelContent
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              anchors.leftMargin: Style.space(14)
+              anchors.rightMargin: Style.space(14)
+              spacing: Style.space(10)
+
+              PanelSectionHeader {
+                width: parent.width
+                text: "Token use by model"
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+              }
+
+              Text {
+                width: parent.width
+                text: root.costHasModelBreakdown
+                  ? "Tokens recorded locally. The right column is an optional API-rate equivalent."
+                  : "Tokens recorded locally."
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
+              }
+
+              Item {
+                width: parent.width
+                implicitHeight: modelHeading.implicitHeight
+
+                Text {
+                  id: modelHeading
+                  text: "MODEL"
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Text {
+                  text: "TOKENS"
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  anchors.right: modelHeadingCost.left
+                  anchors.rightMargin: root.costHasModelBreakdown ? Style.space(10) : Style.space(8)
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Text {
+                  id: modelHeadingCost
+                  visible: root.costHasModelBreakdown
+                  text: "API PRICE"
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+              }
+
+              Repeater {
+                model: root.detailModels
+
+                ModelRow {
+                  required property var modelData
+                  width: detailModelContent.width
+                  row: modelData
+                  share: modelData.total / Math.max(1, root.detailModels[0].total)
+                  apiCost: root.apiCostForModel(modelData)
+                }
+              }
+            }
+          }
+
           // ---------- Cost: an optional, collector-reported *estimate* of
           // what usage would cost at published API rates. A compact card
           // keeps the number visually connected to its disclosure without
@@ -1370,7 +1500,7 @@ Panel {
 
               PanelSectionHeader {
                 width: parent.width
-                text: "API-rate estimate"
+                text: "Equivalent API price"
                 foreground: root.foreground
                 fontFamily: root.fontFamily
               }
@@ -1620,27 +1750,10 @@ Panel {
             }
           }
 
-          // ---------- History chart (issue 13): a taller, range-selectable
-          // view of the same per-day data as the compact "TOKENS BY DAY"
-          // table above, for the currently selected provider only. Kept
-          // under `expanded` alongside the all-subscriptions model table
-          // above — this is data, like that table, not a setting, so it
-          // does not share `settingsOpen`'s gate.
-          //
-          // There is no existing per-provider color anywhere in this panel
-          // (ProviderMark falls back to the module's shared glyph/initial,
-          // and every meter/bar uses `root.foreground` at varying alpha) so
-          // this chart does the same rather than inventing a color scheme
-          // the rest of the panel doesn't have. A future per-provider
-          // palette, if one is ever added, would apply here too.
-          //
-          // Drawn as bars-per-day rather than a line/area fill: it is the
-          // same visual idiom DayRow above already uses (a bar scaled to
-          // the heaviest day), just taller and Canvas-drawn instead of
-          // stacked Rectangles, so it reads as more of this panel's house
-          // style rather than a new chart type, and it sidesteps needing
-          // any curve/spline math in code that qmllint and the test suite
-          // can't check.
+          // ---------- History chart (issue 13): all recorded days for the
+          // selected provider. The line makes the trend readable at a glance;
+          // the axis labels make the scale explicit instead of asking the
+          // viewer to infer it from bar height.
           PanelSeparator {
             visible: root.expanded
             foreground: root.foreground
@@ -1687,15 +1800,20 @@ Panel {
               id: historyCanvas
               visible: !!(root.historySeries && root.historySeries.ok && root.historySeries.points.length > 0)
               width: parent.width
-              height: Style.space(112)
+              height: Style.space(146)
+
+              readonly property real axisLeft: Style.space(46)
+              readonly property real axisRight: Style.space(8)
+              readonly property real axisTop: Style.space(10)
+              readonly property real axisBottom: Style.space(22)
 
               property var series: root.historySeries
-              property color barColor: root.foreground
+              property color lineColor: Color.accent
 
               onSeriesChanged: requestPaint()
               onWidthChanged: requestPaint()
               onHeightChanged: requestPaint()
-              onBarColorChanged: requestPaint()
+              onLineColorChanged: requestPaint()
               onVisibleChanged: if (visible) requestPaint()
 
               // Canvas paint code has no lint/type-check coverage the rest
@@ -1716,32 +1834,67 @@ Panel {
 
                   var points = s.points
                   var n = points.length
-                  var peak = Math.max(1, Number(s.peak) || 0)
-                  var gap = n > 1 ? Style.space(3) : 0
-                  var barWidth = Math.max(1, (width - gap * (n - 1)) / n)
-                  var todayDate = root.todayDate()
+                  var left = historyCanvas.axisLeft
+                  var right = historyCanvas.axisRight
+                  var top = historyCanvas.axisTop
+                  var bottom = height - historyCanvas.axisBottom
+                  var plotWidth = width - left - right
+                  var plotHeight = bottom - top
+                  if (plotWidth <= 0 || plotHeight <= 0) return
+                  var peak = Math.max(0, Number(s.peak) || 0)
+                  var scale = peak > 0 ? peak : 1
 
-                  // Two quiet guide lines give the bars a baseline and a
-                  // halfway reference without turning this into chart chrome.
-                  ctx.fillStyle = root.alpha(historyCanvas.barColor, 0.10)
-                  ctx.fillRect(0, height - 1, width, 1)
-                  ctx.fillRect(0, Math.round(height * 0.5), width, 1)
+                  ctx.font = String(Style.font.caption) + "px " + root.fontFamily
+                  ctx.textAlign = "right"
+                  ctx.textBaseline = "middle"
 
+                  // Three quiet guides provide a real scale without turning
+                  // the chart into a grid. The labels use the same compact
+                  // token formatter as the rest of the panel.
+                  for (var level = 0; level <= 2; level++) {
+                    var fraction = level / 2
+                    var guideY = bottom - plotHeight * fraction
+                    ctx.strokeStyle = root.alpha(root.foreground, 0.14)
+                    ctx.lineWidth = 1
+                    ctx.beginPath()
+                    ctx.moveTo(left, guideY + 0.5)
+                    ctx.lineTo(width - right, guideY + 0.5)
+                    ctx.stroke()
+                    ctx.fillStyle = root.dim
+                    ctx.fillText(usage.formatTokenCount(Math.round(peak * fraction)), left - Style.space(7), guideY)
+                  }
+
+                  function pointX(index) {
+                    return n <= 1 ? left + plotWidth / 2 : left + plotWidth * index / (n - 1)
+                  }
+                  function pointY(point) {
+                    var value = Math.max(0, Number(point && point.value) || 0)
+                    return bottom - plotHeight * Math.min(1, value / scale)
+                  }
+
+                  ctx.strokeStyle = historyCanvas.lineColor
+                  ctx.lineWidth = 2
+                  ctx.lineCap = "round"
+                  ctx.lineJoin = "round"
+                  ctx.beginPath()
                   for (var i = 0; i < n; i++) {
-                    var point = points[i] || {}
-                    var value = Math.max(0, Number(point.value) || 0)
-                    var ratio = Math.min(1, value / peak)
-                    // A nonzero day always shows at least a sliver, so a
-                    // quiet day never reads as visually identical to a
-                    // true zero (gap) day.
-                    var barHeight = value > 0 ? Math.max(2, ratio * height) : 0
-                    if (barHeight <= 0) continue
+                    var linePoint = points[i] || {}
+                    var lineX = pointX(i)
+                    var lineY = pointY(linePoint)
+                    if (i === 0) ctx.moveTo(lineX, lineY)
+                    else ctx.lineTo(lineX, lineY)
+                  }
+                  ctx.stroke()
 
-                    var x = i * (barWidth + gap)
-                    var y = height - barHeight
-                    var isToday = String(point.date || "") === todayDate
-                    ctx.fillStyle = root.alpha(historyCanvas.barColor, isToday ? 0.85 : 0.5)
-                    ctx.fillRect(x, y, barWidth, barHeight)
+                  // A small dot preserves zero-usage days and makes the
+                  // latest point easy to find without filled histogram bars.
+                  for (var j = 0; j < n; j++) {
+                    var point = points[j] || {}
+                    ctx.fillStyle = String(point.date || "") === root.todayDate()
+                      ? root.foreground : historyCanvas.lineColor
+                    ctx.beginPath()
+                    ctx.arc(pointX(j), pointY(point), j === n - 1 ? 3.5 : 2.5, 0, Math.PI * 2)
+                    ctx.fill()
                   }
                 } catch (e) {
                   // Swallow: a chart that fails to draw should leave a
@@ -1760,10 +1913,21 @@ Panel {
 
                 Text {
                   required property var modelData
-                  width: historyLabels.width / Math.max(1, root.historySeries.points.length)
-                  text: String(modelData.date || "").slice(5)
+                  required property int index
+                  width: historyLabels.width / Math.max(1,
+                    root.historySeries && root.historySeries.points
+                      ? root.historySeries.points.length : 1)
+                  visible: {
+                    var count = root.historySeries && root.historySeries.points
+                      ? root.historySeries.points.length : 0
+                    return index === 0 || index === count - 1
+                      || (count > 2 && index === Math.floor((count - 1) / 2))
+                  }
+                  text: root.shortHistoryDate(modelData.date)
                   horizontalAlignment: Text.AlignHCenter
-                  color: String(modelData.date || "") === root.todayDate() ? root.foreground : root.dim
+                  color: root.historySeries && root.historySeries.points
+                    && index === root.historySeries.points.length - 1
+                    ? root.foreground : root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                 }
@@ -2306,6 +2470,7 @@ Panel {
     id: modelRow
     property var row: null
     property real share: 0
+    property var apiCost: null
 
     implicitHeight: modelName.implicitHeight + Style.spacing.lg
 
@@ -2344,14 +2509,27 @@ Panel {
     }
 
     Text {
+      id: modelCost
+      visible: modelRow.apiCost !== null && modelRow.apiCost !== undefined
+      text: visible ? root.formatUsd(modelRow.apiCost) : ""
+      textFormat: Text.PlainText
+      color: root.dim
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      anchors.right: parent.right
+      anchors.rightMargin: Style.space(8)
+      anchors.verticalCenter: parent.verticalCenter
+    }
+
+    Text {
       id: modelTokens
       text: modelRow.row ? usage.formatTokenCount(modelRow.row.total) : ""
       color: root.dim
       font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
       font.bold: true
-      anchors.right: parent.right
-      anchors.rightMargin: Style.space(8)
+      anchors.right: modelCost.visible ? modelCost.left : parent.right
+      anchors.rightMargin: modelCost.visible ? Style.space(10) : Style.space(8)
       anchors.verticalCenter: parent.verticalCenter
     }
 
