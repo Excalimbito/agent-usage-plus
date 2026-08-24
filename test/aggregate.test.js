@@ -460,6 +460,19 @@ test("selectBarLayout: old cycle configurations rotate every showInBar provider"
   assert.equal(layout.legacy, true)
 })
 
+test("selectBarLayout: role layout keeps unassigned providers fixed", () => {
+  const providers = providerList("claude", "codex", "gemini")
+  const settings = { providers: {
+    claude: { showInBar: true },
+    codex: { barRole: "cycle", showInBar: true },
+    gemini: { showInBar: true }
+  } }
+  const layout = Aggregate.selectBarLayout(providers, settings, "roles", 0, 1, 3)
+  assert.deepEqual(layout.fixed.map((p) => p.providerId), ["claude", "gemini"])
+  assert.deepEqual(layout.cycling.map((p) => p.providerId), ["codex"])
+  assert.deepEqual(layout.providers.map((p) => p.providerId), ["claude", "gemini", "codex"])
+})
+
 test("selectBarLayout: fixed providers consume slots before rotating providers", () => {
   const providers = providerList("claude", "codex", "fireworks", "gemini")
   const settings = { providers: {

@@ -7,8 +7,8 @@ Automated tests cover extracted logic and record validation. They cannot show cl
 ## Bar
 
 - [ ] With one, two, and three enabled providers that have data and `showInBar: true`, each meter has a readable mark, meter, and percentage. A provider with a weekly limit also has the small weekly tick.
-- [ ] With four or more eligible providers in `barMode: "all"`, the bar shows at most three full meter groups followed by a `+N` indicator. Hovering it explains that the remaining subscriptions are in the panel; clicking it opens the full provider list rather than creating an inert gap.
-- [ ] In `barMode: "cycle"`, verify Off, Fixed, and Cycle roles. Fixed providers
+- [ ] With four or more eligible providers, the bar shows at most three full meter groups followed by a `+N` indicator. Hovering it explains that the remaining subscriptions are in the panel; clicking it opens the full provider list rather than creating an inert gap.
+- [ ] Verify Off, Fixed, and Cycle roles. Fixed providers
   stay visible while the configured number of rotating slots advances at the
   interval. Test two rotating slots and one Fixed plus one Cycle. Middle-click
   advances the rotating slice without changing the panel's selected tab.
@@ -30,9 +30,8 @@ Automated tests cover extracted logic and record validation. They cannot show cl
 - [ ] Open the gear: every provider occupies one row; its name, Enabled switch,
   and Off/Fixed/Cycle selector do not clip or overlap. Disabled providers dim
   the bar-slot selector.
-- [ ] Switch between All providers and Cycle providers and verify the copy
-  matches the bar. In Cycle mode, the rotating-slot count and interval appear,
-  and both values stay within their stated limits.
+- [ ] Mark a provider Cycle and verify the rotating-slot count and interval
+  appear. Both values must stay within their stated limits.
 - [ ] Change refresh interval and warn/critical thresholds, then confirm values survive `omarchy restart shell`. Settings must apply without a restart because the panel writes via `omarchy bar set`, not directly to `shell.json`.
 - [ ] Confirm an invalid externally-written threshold pair (`warn >= critical`) never crashes the panel; it should skip the warn band until the pair is corrected.
 

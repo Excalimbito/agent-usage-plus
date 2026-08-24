@@ -243,14 +243,11 @@ only adds the meter and the spent-of-funded line under the real figure.
   below). With every provider's `showInBar` off (or nothing enabled yet),
   the icon falls back to the module's own glyph instead of an
   empty-looking gap, so it stays reachable.
-- `barMode` (see Settings) changes what the bar row itself shows, not the
-  panel's icon switcher, which always lists every `enabled` subscription
-  regardless of `barMode`:
-  - `all` (default): one meter per subscription with `showInBar` on.
-  - `cycle`: fixed meters stay visible and the configured rotating slots
-    advance through providers marked `Cycle`. Middle-click advances the
-    rotating slice and resets the timer. This does not change the provider
-    currently selected in the panel.
+- The per-provider Bar slot setting controls the bar row. `Off` hides that
+  provider, `Fixed` keeps its meter visible, and `Cycle` puts it in the
+  rotating pool. Fixed meters stay visible while the configured rotating
+  slots advance. Middle-click advances the rotating slice without changing
+  the provider selected in the panel.
 - Panel: `h`/`l` switch subscription, `j`/`k` scroll, `r` or Enter refresh,
   `e` or the chevron button next to the provider name opens/closes the
   selected provider's token, API-price, and history details. The provider
@@ -262,18 +259,17 @@ only adds the meter and the spent-of-funded line under the real figure.
 ## Settings
 
 Settings live in the widget's entry in `~/.config/omarchy/shell.json`.
-`refreshIntervalSec`, `warnThresholdPct`, `criticalThresholdPct`, `barMode`,
+`refreshIntervalSec`, `warnThresholdPct`, `criticalThresholdPct`,
 `barCycleIntervalSec`, `barCycleSlots`, and each provider's `enabled`,
 `showInBar`, and `barRole`
 are also editable from inside the panel itself: click the gear button next
 to the provider name. Settings replaces the details view with one concise
-row per provider and adjacent Enabled and Bar slot controls. The bar mode is
-either All providers or Cycle providers. In Cycle mode, choose Off, Fixed, or
-Cycle for each provider and set how many rotating slots should be visible.
-The interval and rotating-slot controls only appear in Cycle mode. Every
-control calls the same `omarchy bar set` command described below, so changes
-apply immediately and survive a shell restart. The CLI remains useful for
-scripting and dotfiles.
+row per provider and adjacent Enabled and Bar slot controls. Choose Off,
+Fixed, or Cycle for each provider; Fixed stays visible and Cycle rotates.
+The interval and rotating-slot controls appear once a provider is marked
+Cycle. Every control calls the same `omarchy bar set` command described below,
+so changes apply immediately and survive a shell restart. The CLI remains
+useful for scripting and dotfiles.
 
 The top-level keys can be set with
 `omarchy bar set io.github.viganogabriele.agent-usage-plus <key> <value>`:
@@ -287,9 +283,8 @@ The top-level keys can be set with
 | `syncDeviceId` | hostname | Stable device name inside the snapshot |
 | `warnThresholdPct` | `75` | Usage % at which meters switch to the warn color (1-99) |
 | `criticalThresholdPct` | `90` | Usage % at which meters switch to the critical (urgent) color (1-100) |
-| `barMode` | `"all"` | `"all"` (one meter per included provider), or `"cycle"` (fixed plus rotating slots) |
-| `barCycleIntervalSec` | `8` | Seconds between rotations when `barMode` is `"cycle"` (3-120) |
-| `barCycleSlots` | `1` | Number of rotating meters visible at once in Cycle mode (0-3) |
+| `barCycleIntervalSec` | `8` | Seconds between rotations when a provider is marked Cycle (3-120) |
+| `barCycleSlots` | `1` | Number of rotating meters visible at once (0-3) |
 | `historyDays` | `30` | Documents how much daily history (7-90) a collector is expected to write into `recentDays`. The panel never fetches more than what's already in a record — this only tells collector authors what window to aim for; see [`docs/collector-contract.md`](docs/collector-contract.md). |
 
 Numbers need `--json`, or they land in `shell.json` as strings:
@@ -332,12 +327,10 @@ switch, just without its own slot in the bar. It has no effect on a provider
 that is already `enabled: false`. Omitting `showInBar` entirely behaves like
 `showInBar: true`.
 
-In Cycle mode, `barRole` may be `fixed` or `cycle`. A missing role is fixed
-once any role is configured. On an older configuration with no roles at all,
-Cycle mode keeps its previous behavior and rotates every provider with
-`showInBar: true`. The panel's Bar slot buttons write both `barRole` and
-`showInBar` together: Off sets `showInBar: false`, while Fixed and Cycle set it
-to `true`. The bar shows up to three providers at once, so fixed slots use
+`barRole` may be `fixed` or `cycle`. A missing role is fixed once any role is
+configured. The panel's Bar slot buttons write both `barRole` and `showInBar`:
+Off sets `showInBar: false`, while Fixed and Cycle set it to `true` and enable
+the provider. The bar shows up to three providers at once, so fixed slots use
 space before rotating slots. Setting `barCycleSlots` to 2 gives two rotating
 providers; marking one provider Fixed and another Cycle gives one fixed and
 one rotating meter when the slot limit allows it.

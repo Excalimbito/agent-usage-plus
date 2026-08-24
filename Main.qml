@@ -321,13 +321,20 @@ Item {
 
   // The bar-widget slice of enabledProviders: same "enabled and has data"
   // list the panel's chip switcher uses, narrowed by `showInBar`.
-  // `barRole` then divides eligible providers into fixed and rotating slots
-  // when Cycle mode is selected. Providers without roles retain the old
-  // behavior: in Cycle mode they all belong to the rotating pool.
-  readonly property string barMode: {
-    var v = setting("barMode", "all")
-    return v === "cycle" ? "cycle" : "all"
+  // `barRole` divides eligible providers into fixed and rotating slots.
+  // The old global bar mode has no user-facing control anymore: the per-row
+  // role is the complete, composable layout. An older hand-written
+  // `barMode: "cycle"` remains readable until a role is chosen.
+  function settingsHaveBarRoles() {
+    var providers = settings && settings.providers ? settings.providers : {}
+    for (var id in providers) {
+      var role = providers[id] ? providers[id].barRole : ""
+      if (role === "fixed" || role === "cycle") return true
+    }
+    return false
   }
+  readonly property bool legacyCycleMode: setting("barMode", "all") === "cycle"
+    && !settingsHaveBarRoles()
   readonly property int barCycleIntervalSec: {
     var v = Number(setting("barCycleIntervalSec", 8))
     if (!isFinite(v)) v = 8
@@ -345,7 +352,8 @@ Item {
 
   readonly property var showInBarList: Aggregate.selectBarProviders(enabledProviders, settings)
   readonly property var barLayout: Aggregate.selectBarLayout(
-    enabledProviders, settings, barMode, barCycleIndex, barCycleSlots, barSlotLimit)
+    enabledProviders, settings, legacyCycleMode ? "legacy-cycle" : "roles",
+    barCycleIndex, barCycleSlots, barSlotLimit)
   readonly property var cycleBarProviders: barLayout.cycling || []
 
   readonly property var barProviders: barLayout.providers || []
@@ -360,8 +368,7 @@ Item {
   Timer {
     id: cycleTimer
     interval: root.barCycleIntervalSec * 1000
-    running: root.barMode === "cycle"
-      && root.barCycleSlots > 0
+    running: root.barCycleSlots > 0
       && root.cycleBarProviders.length > root.barCycleSlots
     repeat: true
     onTriggered: root.advanceCycle()
@@ -377,7 +384,7 @@ Item {
   // restarts the timer so the next automatic tick waits a full interval
   // from *this* advance rather than from whenever the timer last fired.
   function cycleNext() {
-    if (root.barMode !== "cycle" || root.barCycleSlots <= 0) return
+    if (root.barCycleSlots <= 0 || root.cycleBarProviders.length === 0) return
     advanceCycle()
     cycleTimer.stop()
     cycleTimer.start()
@@ -490,11 +497,6 @@ Item {
 
   function setProviderEnabled(id, value) { setProviderField(id, "enabled", !!value) }
   function setProviderShowInBar(id, value) { setProviderField(id, "showInBar", !!value) }
-  function setBarMode(value) {
-    var v = value === "cycle" ? "cycle" : "all"
-    writeSetting("barMode", JSON.stringify(v))
-  }
-
   function setBarCycleIntervalSec(value) {
     writeSetting("barCycleIntervalSec", String(Math.max(3, Math.min(120, Math.round(Number(value))))))
   }
@@ -509,10 +511,14 @@ Item {
     // hand-written shell.json files. A role selection updates both fields in
     // one queued write, so the UI cannot show an enabled Cycle role that the
     // bar still excludes.
-    setProviderFields(id, {
+    var fields = {
       showInBar: role !== "off",
       barRole: role === "off" ? "fixed" : role
-    })
+    }
+    // Choosing Fixed or Cycle is an intent to use this provider. Avoid the
+    // state where a selected role remains invisible because Enabled was off.
+    if (role !== "off") fields.enabled = true
+    setProviderFields(id, fields)
   }
 
   // ------------------------------------------------------------------ sync

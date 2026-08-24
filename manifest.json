@@ -66,7 +66,6 @@
           "showInBar": false
         }
       },
-      "barMode": "all",
       "barCycleIntervalSec": 8,
       "barCycleSlots": 1,
       "refreshIntervalSec": 900,
@@ -80,17 +79,6 @@
     },
     "schema": [
       {
-        "key": "barMode",
-        "type": "enum",
-        "label": "Bar display mode",
-        "options": [
-          "all",
-          "cycle"
-        ],
-        "defaultValue": "all",
-        "description": "all: show every provider marked for the bar. cycle: rotate through providers marked for cycling every barCycleIntervalSec."
-      },
-      {
         "key": "barCycleIntervalSec",
         "type": "integer",
         "label": "Cycle interval (seconds)",
@@ -98,7 +86,7 @@
         "max": 120,
         "step": 1,
         "defaultValue": 8,
-        "description": "Only used when barMode is cycle."
+        "description": "Only used when at least one provider is marked Cycle."
       },
       {
         "key": "barCycleSlots",
@@ -108,7 +96,7 @@
         "max": 3,
         "step": 1,
         "defaultValue": 1,
-        "description": "How many providers rotate at once in cycle mode. Providers marked fixed stay visible."
+        "description": "How many providers rotate at once. Providers marked Fixed stay visible."
       },
       {
         "key": "refreshIntervalSec",

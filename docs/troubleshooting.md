@@ -18,16 +18,11 @@ Check the three deliberately different visibility states:
 
 - `enabled: false` hides the provider everywhere and excludes it from refresh.
 - `enabled: true` with `showInBar: false` hides only its bar meter; it remains selectable in the panel.
-- In `barMode: "cycle"`, `Bar slot: Off` hides a provider, `Fixed` keeps it
-  visible, and `Cycle` puts it in the rotating pool. `barCycleSlots` controls
-  how many rotating meters are visible at once.
+- `Bar slot: Off` hides a provider, `Fixed` keeps it visible, and `Cycle`
+  puts it in the rotating pool. `barCycleSlots` controls how many rotating
+  meters are visible at once. Choosing Fixed or Cycle enables that provider.
 
-If a configuration has no `barRole` fields, Cycle mode keeps the old behavior
-and rotates all providers with `showInBar: true`. Choosing a role for one
-provider makes the other unassigned providers fixed, so assign Cycle to each
-provider that should rotate.
-
-In `barMode: "all"`, more than three eligible providers are collapsed into a `+N` bar indicator to prevent the bar from growing without bound. Click it to open the complete provider switcher. A provider with no usage record yet is also absent until the next collector refresh produces usable data.
+More than three eligible providers are collapsed into a `+N` bar indicator to prevent the bar from growing without bound. Click it to open the complete provider switcher. A provider with no usage record yet is also absent until the next collector refresh produces usable data.
 
 If every known provider is disabled or hidden from the bar, the module glyph remains so Settings are still reachable. A completely new machine with no discovered usage record has no widget at all; that is the intentional empty state.
 

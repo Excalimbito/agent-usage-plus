@@ -519,9 +519,9 @@ function selectBarProviders(providers, settings) {
 // compatibility gate: false always means the provider is out of the bar.
 // Newer settings can add `barRole` (`fixed` or `cycle`) to choose whether an
 // eligible provider stays visible or participates in the rotating pool.
-// Providers without an explicit role are fixed once a role has been chosen
-// for any provider. Before roles existed, cycle mode treated every
-// showInBar provider as rotating, so old configurations keep their behavior.
+// Providers without an explicit role are fixed. `legacy-cycle` is reserved
+// for an old saved global cycle setting, where every showInBar provider used
+// to rotate before per-provider roles existed.
 //
 // `cycleSlots` is the number of rotating meters visible at once. The result
 // is capped by `slotLimit` so a large provider set cannot stretch the bar.
@@ -543,14 +543,17 @@ function selectBarLayout(providers, settings, mode, cycleIndex, cycleSlots, slot
 
   var fixed = []
   var cycling = []
-  var cycleMode = String(mode || "all") === "cycle"
+  var layoutMode = String(mode || "all")
+  var cycleMode = layoutMode === "cycle" || layoutMode === "roles"
+    || layoutMode === "legacy-cycle"
+  var legacyCycle = layoutMode === "cycle" || layoutMode === "legacy-cycle"
   for (var i = 0; i < eligible.length; i++) {
     var provider = eligible[i]
     var id = provider && provider.providerId
     var cfg = id && providerSettings[id] ? providerSettings[id] : {}
     var role = cfg.barRole === "cycle" ? "cycle" : "fixed"
-    // Preserve the pre-role cycle behavior until a user has chosen a role.
-    if (cycleMode && !explicitRoles && cfg.barRole !== "fixed") role = "cycle"
+    // Preserve the pre-role global-cycle behavior only for an old setting.
+    if (legacyCycle && !explicitRoles && cfg.barRole !== "fixed") role = "cycle"
     if (cycleMode && role === "cycle") cycling.push(provider)
     else fixed.push(provider)
   }

@@ -175,9 +175,17 @@ Panel {
     if (cfg.showInBar === false) return "off"
     if (cfg.barRole === "cycle") return "cycle"
     if (cfg.barRole === "fixed") return "fixed"
-    // A pre-role configuration in Cycle mode still rotates all eligible
+    // A pre-role global Cycle configuration still rotates all eligible
     // providers. Reflect that legacy behavior until the user chooses a role.
-    return usage.barMode === "cycle" && !providerRolesConfigured() ? "cycle" : "fixed"
+    return usage.legacyCycleMode && !providerRolesConfigured() ? "cycle" : "fixed"
+  }
+
+  function hasCycleSlotConfigured() {
+    var rows = root.settingsProviders
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i].enabled && rows[i].barRole === "cycle") return true
+    }
+    return false
   }
 
   // One row per provider this machine knows about, whether or not it is
@@ -873,7 +881,7 @@ Panel {
       // Main.qml) instead of the panel's own chip-selection index; the two
       // are deliberately kept separate (see barCycleIndex's comment).
       else if (buttonCode === Qt.MiddleButton) {
-        if (usage.barMode === "cycle") usage.cycleNext()
+        if (usage.cycleBarProviders.length > 0) usage.cycleNext()
         else root.selectProvider(root.providerIndex + 1)
       }
       else root.toggle()
@@ -923,7 +931,7 @@ Panel {
           Text {
             anchors.verticalCenter: parent.verticalCenter
             text: root.providerPercentText(providerGroup.modelData)
-            color: root.colorForSeverity(root.providerSeverity(providerGroup.modelData))
+            color: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
@@ -944,7 +952,7 @@ Panel {
           onPressed: function(buttonCode) {
             if (buttonCode === Qt.RightButton) root.launchAgent()
             else if (buttonCode === Qt.MiddleButton) {
-              if (usage.barMode === "cycle") usage.cycleNext()
+              if (usage.cycleBarProviders.length > 0) usage.cycleNext()
               else root.selectProvider(root.providerIndex + 1)
             }
             else root.openProvider(providerGroup.modelData)
@@ -1145,8 +1153,6 @@ Panel {
                   id: heroMarkImage
                   anchors.fill: parent
                   source: heroMark.candidateIndex < heroMark.candidates.length ? heroMark.candidates[heroMark.candidateIndex] : ""
-                  sourceSize.width: Style.font.display * 2
-                  sourceSize.height: Style.font.display * 2
                   fillMode: Image.PreserveAspectFit
                   // Advancing source from inside its own status change trips the
                   // binding-loop detector; defer the step one tick.
@@ -1245,7 +1251,7 @@ Panel {
 
           // ---------- Status ----------
             BorderSurface {
-              visible: !!root.provider && String(root.provider.usageStatusText || "") !== ""
+              visible: !root.settingsOpen && !!root.provider && String(root.provider.usageStatusText || "") !== ""
               width: parent.width
               implicitHeight: statusContent.implicitHeight + Style.spacing.xl * 2
               color: root.alpha(root.statusColor(root.provider), 0.10)
@@ -1293,7 +1299,7 @@ Panel {
 
           BorderSurface {
             id: balanceSection
-            visible: !!root.balance
+            visible: !root.settingsOpen && !!root.balance
             width: parent.width
             implicitHeight: balanceContent.implicitHeight + Style.space(28)
             color: root.alpha(root.foreground, 0.035)
@@ -1340,7 +1346,7 @@ Panel {
                   id: balanceValue
                   text: root.balance ? root.formatMoney(root.balance.remaining, root.balance.currency) : ""
                   textFormat: Text.PlainText
-                  color: root.colorForSeverity(root.balanceSeverity)
+                  color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   font.bold: true
@@ -1370,7 +1376,7 @@ Panel {
 
           BorderSurface {
             id: limitsSection
-            visible: root.limits.length > 0
+            visible: !root.settingsOpen && root.limits.length > 0
             width: parent.width
             implicitHeight: limitsContent.implicitHeight + Style.space(28)
             color: root.alpha(root.foreground, 0.035)
@@ -1987,8 +1993,10 @@ Panel {
                         Item {
                           width: providerSettingsList.controlCellWidth
                           height: parent.height
-                          enabled: providerSettingsRow.modelData.enabled
-                          opacity: enabled ? 1.0 : 0.42
+                          // Fixed/Cycle also enables the provider. Keep this
+                          // selector clickable even while its Enabled switch
+                          // is off, otherwise it cannot perform that action.
+                          opacity: providerSettingsRow.modelData.enabled ? 1.0 : 0.62
 
                           Row {
                             anchors.centerIn: parent
@@ -2030,83 +2038,51 @@ Panel {
               font.pixelSize: Style.font.caption
             }
 
-            // ----- Bar display mode (issue #5) -----
+            // ----- Per-provider cycle controls -----
             Column {
+              visible: root.hasCycleSlotConfigured()
               width: parent.width
               spacing: Style.space(6)
 
               Text {
-                text: "Bar display"
+                text: "Cycle"
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
               }
 
-              Row {
-                id: barModeSwitch
-                width: parent.width
-                spacing: Style.spacing.md
-
-                readonly property var options: ["all", "cycle"]
-                readonly property var optionLabels: ({ all: "All providers", cycle: "Cycle providers" })
-                readonly property real cellWidth: (width - spacing * (options.length - 1)) / options.length
-
-                Repeater {
-                  model: barModeSwitch.options
-
-                  Button {
-                    required property var modelData
-                    width: barModeSwitch.cellWidth
-                    text: barModeSwitch.optionLabels[modelData]
-                    selected: usage.barMode === modelData
-                    bordered: true
-                    foreground: root.foreground
-                    fontFamily: root.fontFamily
-                    fontSize: Style.font.bodySmall
-                    verticalPadding: Style.spacing.controlPaddingY
-                    onClicked: usage.setBarMode(modelData)
-                  }
-                }
-              }
-
               Text {
                 width: parent.width
-                text: usage.barMode === "cycle"
-                  ? "Fixed stays visible. Cycle slots rotate through providers marked Cycle."
-                  : "All shows every provider whose bar slot is not Off."
+                text: "Fixed stays visible. Cycle rotates through providers marked Cycle."
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
                 wrapMode: Text.WordWrap
               }
-            }
 
-            // ----- Rotating slots (only meaningful in Cycle mode) -----
-            NumberField {
-              visible: usage.barMode === "cycle"
-              label: "Rotating slots"
-              value: usage.barCycleSlots
-              from: 0
-              to: 3
-              stepSize: 1
-              foreground: root.foreground
-              accent: Color.accent
-              fontFamily: root.fontFamily
-              onModified: function(v) { usage.setBarCycleSlots(v) }
-            }
+              NumberField {
+                label: "Visible rotating slots"
+                value: usage.barCycleSlots
+                from: 0
+                to: 3
+                stepSize: 1
+                foreground: root.foreground
+                accent: Color.accent
+                fontFamily: root.fontFamily
+                onModified: function(v) { usage.setBarCycleSlots(v) }
+              }
 
-            // ----- Cycle interval (only meaningful in Cycle mode) -----
-            NumberField {
-              visible: usage.barMode === "cycle"
-              label: "Cycle interval (seconds)"
-              value: usage.barCycleIntervalSec
-              from: 3
-              to: 120
-              stepSize: 1
-              foreground: root.foreground
-              accent: Color.accent
-              fontFamily: root.fontFamily
-              onModified: function(v) { usage.setBarCycleIntervalSec(v) }
+              NumberField {
+                label: "Rotation interval (seconds)"
+                value: usage.barCycleIntervalSec
+                from: 3
+                to: 120
+                stepSize: 1
+                foreground: root.foreground
+                accent: Color.accent
+                fontFamily: root.fontFamily
+                onModified: function(v) { usage.setBarCycleIntervalSec(v) }
+              }
             }
 
             // ----- Refresh interval -----
@@ -2122,102 +2098,48 @@ Panel {
               onModified: function(v) { usage.setRefreshIntervalSec(v) }
             }
 
-            // ----- Warn / critical thresholds -----
-            Column {
-              width: parent.width
-              spacing: Style.space(6)
-
-              Item {
-                width: parent.width
-                implicitHeight: warnLabel.implicitHeight
-
-                Text {
-                  id: warnLabel
-                  text: "Warn threshold"
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  anchors.left: parent.left
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-
-                Text {
-                  text: root.warnThresholdPct + "%"
-                  color: root.warn
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  anchors.right: parent.right
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-              }
-
-              PanelSlider {
-                width: parent.width
-                bar: root.bar
-                minimum: 1
-                maximum: 99
-                step: 1
-                integer: true
-                value: root.warnThresholdPct
-                onReleased: function(v) { usage.setWarnThresholdPct(v) }
-              }
-
-              Text {
-                width: parent.width
-                text: "Percentage of a limit used before the meter changes to warning."
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
-              }
+            // Independent numeric fields avoid the scroll/drag bug in the
+            // previous sliders and allow exact values by keyboard.
+            NumberField {
+              label: "Warn at (%)"
+              value: root.warnThresholdPct
+              from: 1
+              to: 99
+              stepSize: 1
+              foreground: root.foreground
+              accent: root.warn
+              fontFamily: root.fontFamily
+              onModified: function(v) { usage.setWarnThresholdPct(v) }
             }
 
-            Column {
+            Text {
               width: parent.width
-              spacing: Style.space(6)
+              text: "The meter turns warning at this percentage."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
 
-              Item {
-                width: parent.width
-                implicitHeight: criticalLabel.implicitHeight
+            NumberField {
+              label: "Critical at (%)"
+              value: root.criticalThresholdPct
+              from: 1
+              to: 100
+              stepSize: 1
+              foreground: root.foreground
+              accent: root.urgent
+              fontFamily: root.fontFamily
+              onModified: function(v) { usage.setCriticalThresholdPct(v) }
+            }
 
-                Text {
-                  id: criticalLabel
-                  text: "Critical threshold"
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  anchors.left: parent.left
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-
-                Text {
-                  text: root.criticalThresholdPct + "%"
-                  color: root.urgent
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  anchors.right: parent.right
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-              }
-
-              PanelSlider {
-                width: parent.width
-                bar: root.bar
-                minimum: 1
-                maximum: 100
-                step: 1
-                integer: true
-                value: root.criticalThresholdPct
-                onReleased: function(v) { usage.setCriticalThresholdPct(v) }
-              }
-              Text {
-                width: parent.width
-                text: "Percentage of a limit used before the meter changes to urgent."
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
-              }
+            Text {
+              width: parent.width
+              text: "The meter turns urgent at this percentage."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
             }
           }
 
@@ -2275,7 +2197,7 @@ Panel {
         text: limitRow.window && limitRow.window.percent >= 0
           ? Format.formatPercent(limitRow.window.percent)
           : "n/a"
-        color: root.colorForSeverity(limitRow.severity)
+        color: root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         anchors.right: parent.right
@@ -2307,7 +2229,7 @@ Panel {
       text: (limitRow.paceProjection && limitRow.paceProjection.exhaustsBeforeReset)
         ? "At this pace: exhausted in " + root.formatDuration(limitRow.paceProjection.untilExhaustionMs) : ""
       textFormat: Text.PlainText
-      color: root.colorForSeverity(limitRow.severity)
+      color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
     }
