@@ -2,6 +2,10 @@
 
 ![Agent Usage Plus](preview.png)
 
+![Bar widget](screenshots/bar-widget.png)
+![Claude Code panel](screenshots/claude-panel.png)
+![Codex panel](screenshots/codex-panel.png)
+
 Native Omarchy bar widget for AI coding usage, limits, balances, pace, costs
 and history. It reads Omarchy and local collector records, so it works with
 both subscriptions and API accounts without storing credentials.
