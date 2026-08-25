@@ -68,6 +68,19 @@ root-owned (as `/usr/share/omarchy/bin` normally is), use the timer, or ask
 your system administrator to install the two symlinks. Re-run `install.sh`
 after updating this repository; it replaces only its own package and symlinks.
 
+If a recent Codex CLI is logged in but Codex shows local totals with
+`Codex limits unavailable`, an older Omarchy collector may still pass the
+removed `-a untrusted` approval mode. Install the explicit user-level
+compatibility override:
+
+```bash
+./collectors/install.sh --codex-cli-compat
+omarchy agent usage-update --force codex
+```
+
+It links only `~/.local/bin/omarchy-agent-usage-codex`, never edits
+`/usr/share/omarchy`, and refuses to replace another local override.
+
 ## Claude and Codex API-cost estimates
 
 `omarchy-agent-usage-claude-cost` and `omarchy-agent-usage-codex-cost` run an

@@ -12,10 +12,11 @@ data_root=${XDG_DATA_HOME:-"$HOME/.local/share"}/agent-usage-plus-collectors
 omarchy_bin=""
 enable_timer=false
 with_transcript_cost=false
+codex_cli_compat=false
 
 usage() {
   cat <<'EOF'
-Usage: ./collectors/install.sh [--omarchy-bin DIR] [--enable-timer] [--with-transcript-cost]
+Usage: ./collectors/install.sh [--omarchy-bin DIR] [--enable-timer] [--with-transcript-cost] [--codex-cli-compat]
 
 Installs collectors into $XDG_DATA_HOME/agent-usage-plus-collectors.
 --omarchy-bin DIR additionally links the bundled omarchy-agent-usage-* commands
@@ -23,6 +24,8 @@ into a writable Omarchy bin directory so Omarchy's usage updater invokes them.
 --enable-timer installs a 10-minute user-level systemd timer for the standalone
 runner. It is useful when the Omarchy bin directory is not user-writable.
 --with-transcript-cost additionally links cost-decorating Claude/Codex wrappers.
+--codex-cli-compat installs a user-level compatibility override for an Omarchy
+Codex collector that still passes the removed Codex CLI value `-a untrusted`.
 An existing user collector is moved once to a recoverable
 `agent-usage-plus-base-<provider>` file which the wrapper runs as its base
 scanner; that name deliberately stays outside Omarchy's collector glob.
@@ -34,6 +37,7 @@ while (($#)); do
     --omarchy-bin) omarchy_bin=${2:?--omarchy-bin needs a directory}; shift 2 ;;
     --enable-timer) enable_timer=true; shift ;;
     --with-transcript-cost) with_transcript_cost=true; shift ;;
+    --codex-cli-compat) codex_cli_compat=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage >&2; exit 2 ;;
   esac
@@ -53,6 +57,19 @@ mkdir -p "$data_root/scripts" "$data_root/logic"
 cp -a "$(dirname "$source_root")/scripts/calculate-api-cost" "$data_root/scripts/"
 cp -a "$(dirname "$source_root")/logic/cost.js" "$(dirname "$source_root")/logic/api-price-catalogue.js" "$data_root/logic/"
 chmod 0755 "$data_root/bin/agent-usage-plus-collectors" "$data_root/bin/omarchy-agent-usage-openrouter" "$data_root/bin/omarchy-agent-usage-deepseek" "$data_root/bin/omarchy-agent-usage-xai" "$data_root/bin/omarchy-agent-usage-zai" "$data_root/bin/omarchy-agent-usage-gemini" "$data_root/bin/omarchy-agent-usage-cursor" "$data_root/bin/omarchy-agent-usage-kimi" "$data_root/bin/omarchy-agent-usage-claude-cost" "$data_root/bin/omarchy-agent-usage-codex-cost" "$data_root/scripts/calculate-api-cost"
+chmod 0755 "$data_root/bin/omarchy-agent-usage-codex-compat"
+
+if $codex_cli_compat; then
+  user_bin=${XDG_BIN_HOME:-"$HOME/.local/bin"}
+  target="$user_bin/omarchy-agent-usage-codex"
+  compat="$data_root/bin/omarchy-agent-usage-codex-compat"
+  mkdir -p "$user_bin"
+  if [[ -e $target || -L $target ]]; then
+    resolved=$(readlink -f "$target" 2>/dev/null || true)
+    [[ $resolved == "$compat" ]] || { echo "Refusing to replace an existing local Codex collector: $target" >&2; exit 1; }
+  fi
+  ln -sfn "$compat" "$target"
+fi
 
 if [[ -n $omarchy_bin ]]; then
   [[ -d $omarchy_bin && -w $omarchy_bin ]] || { echo "Not a writable Omarchy bin directory: $omarchy_bin" >&2; exit 1; }
