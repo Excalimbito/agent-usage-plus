@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from unittest.mock import patch
 
 from agent_usage_collectors import cursor, deepseek, gemini, kimi, openrouter, xai
-from agent_usage_collectors.common import base_record, classify_failure
+from agent_usage_collectors.common import MAX_RESPONSE_BYTES, base_record, classify_failure, endpoint_problem, request_json
 from agent_usage_collectors.deepseek import record_from_payload as deepseek_record
 from agent_usage_collectors.cursor import record_from_payload as cursor_record
 from agent_usage_collectors.gemini import record_from_payload as gemini_record
@@ -19,6 +22,32 @@ from agent_usage_collectors.zai import record_from_payload as zai_record
 
 
 class CollectorParsingTests(unittest.TestCase):
+    def test_request_json_bounds_provider_response_reads(self) -> None:
+        class Response:
+            def __init__(self, body: bytes) -> None:
+                self.body = body
+                self.read_limit: int | None = None
+
+            def __enter__(self) -> "Response":
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def read(self, limit: int = -1) -> bytes:
+                self.read_limit = limit
+                return self.body
+
+        response = Response(b"{}")
+        with patch("agent_usage_collectors.common.urlopen", return_value=response):
+            self.assertEqual(request_json("https://provider.example/usage"), {})
+        self.assertEqual(response.read_limit, MAX_RESPONSE_BYTES + 1)
+
+        oversized = Response(b"{" + b"x" * MAX_RESPONSE_BYTES + b"}")
+        with patch("agent_usage_collectors.common.urlopen", return_value=oversized):
+            with self.assertRaisesRegex(ValueError, "too large"):
+                request_json("https://provider.example/usage")
+
     def test_every_companion_collector_reports_missing_auth_without_network(self) -> None:
         with patch.object(openrouter, "find_key", return_value=None), patch.object(deepseek, "find_key", return_value=None), patch.object(kimi, "find_key", return_value=None), patch.object(xai, "find_key", return_value=None), patch.object(gemini, "read_access_token", return_value=None), patch.object(cursor, "read_token", return_value=None), patch("agent_usage_collectors.zai.find_any_key", return_value=None):
             records = [
@@ -97,6 +126,14 @@ class CollectorParsingTests(unittest.TestCase):
         record = collect_zai()
         self.assertTrue(record["ready"])
         self.assertEqual(get_json.call_args.args[0], "https://api.z.ai/api/monitor/usage/quota/limit")
+
+    @patch.dict("os.environ", {"Z_AI_QUOTA_ENDPOINT": "https://evil.z.ai/api/monitor/usage/quota/limit"})
+    @patch("agent_usage_collectors.zai.request_json")
+    @patch("agent_usage_collectors.zai.find_any_key", return_value="zai-test-key")
+    def test_zai_rejects_unlisted_quota_override_without_sending_key(self, _key: object, get_json: object) -> None:
+        record = collect_zai()
+        self.assertEqual(record["usageStatusText"], "Z.AI quota endpoint is invalid")
+        get_json.assert_not_called()
 
     @patch("agent_usage_collectors.zai.setting", side_effect=lambda env, config: {"Z_AI_USAGE_SCOPE": "team", "Z_AI_ORGANIZATION": "org-1", "Z_AI_PROJECT": "project-1"}.get(env))
     @patch("agent_usage_collectors.zai.request_json")
@@ -189,6 +226,30 @@ class CollectorParsingTests(unittest.TestCase):
         self.assertEqual(rejected["usageStatusText"], "API key rejected")
         self.assertNotIn("retryAdvised", rejected)
         self.assertTrue(network["retryAdvised"])
+
+    def test_endpoint_problem_carries_forward_last_known_good_reading(self) -> None:
+        with tempfile.TemporaryDirectory() as state_home:
+            usage_dir = Path(state_home) / "omarchy" / "agents" / "usage"
+            usage_dir.mkdir(parents=True)
+            (usage_dir / "x.json").write_text(json.dumps({
+                "id": "x",
+                "updatedAt": "2026-08-24T00:00:00Z",
+                "limits": [{"label": "Session", "percent": 42}],
+            }), encoding="utf-8")
+            with patch.dict("os.environ", {"XDG_STATE_HOME": state_home}):
+                error = HTTPError("https://x", 429, "rate limited", {}, None)
+                record = classify_failure(base_record("x", "X", "X"), "X", error, "Fix auth")
+                error.close()
+        self.assertEqual(record["limits"], [{"label": "Session", "percent": 42}])
+        self.assertEqual(record["updatedAt"], "2026-08-24T00:00:00Z")
+        self.assertEqual(record["usageStatusText"], "X usage unavailable")
+
+    def test_endpoint_problem_without_a_prior_reading_stays_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as state_home:
+            with patch.dict("os.environ", {"XDG_STATE_HOME": state_home}):
+                record = endpoint_problem(base_record("x", "X", "X"), "X down", "help")
+        self.assertEqual(record["limits"], [])
+        self.assertNotIn("balance", record)
 
     def test_transcript_cost_decorator_uses_complete_known_model_pricing(self) -> None:
         record = decorate({

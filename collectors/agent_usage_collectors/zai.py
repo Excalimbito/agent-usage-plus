@@ -26,6 +26,7 @@ from .common import (
 GLOBAL_BASE_URL = "https://api.z.ai"
 CHINA_BASE_URL = "https://open.bigmodel.cn"
 DEFAULT_QUOTA_PATH = "/api/monitor/usage/quota/limit"
+TRUSTED_QUOTA_HOSTS = {"api.z.ai", "open.bigmodel.cn"}
 AUTH_HELP = (
     "Set Z_AI_API_KEY (or ZAI_API_KEY), or add zai.apiKey to "
     "~/.config/omarchy/agent-usage-plus/collectors.json (chmod 600), "
@@ -211,7 +212,7 @@ def collect() -> dict[str, Any]:
         endpoint = quota_endpoint(region)
         parsed = urlsplit(endpoint)
         hostname = (parsed.hostname or "").lower()
-        trusted_host = hostname in {"api.z.ai", "open.bigmodel.cn"} or hostname.endswith(".z.ai") or hostname.endswith(".bigmodel.cn")
+        trusted_host = hostname in TRUSTED_QUOTA_HOSTS
         if parsed.scheme != "https" or not parsed.netloc or not trusted_host:
             return endpoint_problem(record, "Z.AI quota endpoint is invalid", "Use the documented HTTPS Z.AI quota endpoint or clear Z_AI_QUOTA_ENDPOINT.")
         payload = request_json(with_team_type(endpoint) if scope == "team" else endpoint, headers={"Authorization": f"Bearer {key}", **headers})

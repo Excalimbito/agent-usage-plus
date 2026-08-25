@@ -19,6 +19,7 @@ from urllib.request import Request, urlopen
 
 
 USER_AGENT = "agent-usage-plus-collectors/1"
+MAX_RESPONSE_BYTES = 1_048_576
 
 
 def now_iso() -> str:
@@ -39,16 +40,52 @@ def base_record(agent_id: str, name: str, tier: str) -> dict[str, Any]:
     }
 
 
+def usage_dir() -> Path:
+    return Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")) / "omarchy" / "agents" / "usage"
+
+
+# Numeric fields the collector contract asks a problem record to keep
+# reporting when it has them (docs/collector-contract.md, "Error states"): a
+# 429/5xx or an auth hiccup is a reason to show a status banner, not a reason
+# to blank out a reading that hasn't actually gone stale. Centralized here,
+# rather than left to each collector, so every provider gets it the same way
+# regardless of which updater (Omarchy's own or this package's standalone
+# runner) ends up writing the record to disk.
+_STALE_CARRY_FIELDS = ("limits", "balance", "cost", "todayPrompts", "recentDays", "modelUsage")
+
+
+def _carry_forward_stale_data(record: dict[str, Any]) -> dict[str, Any]:
+    agent_id = record.get("id")
+    if not isinstance(agent_id, str) or not agent_id:
+        return record
+    try:
+        previous = json.loads((usage_dir() / f"{agent_id}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return record
+    if not isinstance(previous, dict):
+        return record
+    carried = False
+    for field in _STALE_CARRY_FIELDS:
+        if not record.get(field) and previous.get(field):
+            record[field] = previous[field]
+            carried = True
+    # Keep the carried data's own timestamp rather than this failed run's
+    # "now" — the panel has no other way to tell the number stopped moving.
+    if carried and previous.get("updatedAt"):
+        record["updatedAt"] = previous["updatedAt"]
+    return record
+
+
 def auth_missing(record: dict[str, Any], help_text: str, *, status: str = "Waiting for API key") -> dict[str, Any]:
     record.update({"ready": False, "usageStatusText": status, "authHelpText": help_text})
-    return record
+    return _carry_forward_stale_data(record)
 
 
 def endpoint_problem(record: dict[str, Any], status: str, help_text: str, *, retry: bool = False) -> dict[str, Any]:
     record.update({"ready": False, "usageStatusText": status, "authHelpText": help_text})
     if retry:
         record["retryAdvised"] = True
-    return record
+    return _carry_forward_stale_data(record)
 
 
 def get_json(
@@ -83,7 +120,10 @@ def request_json(
         method = "POST"
     request = Request(url, data=payload, method=method, headers=request_headers)
     with urlopen(request, timeout=timeout_seconds) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+        raw_response = response.read(MAX_RESPONSE_BYTES + 1)
+        if len(raw_response) > MAX_RESPONSE_BYTES:
+            raise ValueError("provider response is too large")
+        payload = json.loads(raw_response.decode("utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("provider returned a JSON value other than an object")
     return payload

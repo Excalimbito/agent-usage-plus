@@ -36,6 +36,9 @@ def usage_dir() -> Path:
 
 
 def publish(agent_id: str, record: dict) -> None:
+    # Collectors already carry forward the last known-good numeric fields
+    # into a problem record themselves (agent_usage_collectors.common), so
+    # this only needs to write whatever collect() returned.
     destination = usage_dir()
     destination.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=destination, prefix=f".{agent_id}.", delete=False) as handle:
