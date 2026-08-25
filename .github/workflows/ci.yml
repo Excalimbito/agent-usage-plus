@@ -88,3 +88,7 @@ jobs:
           else
             echo "no test/ dir, skipping"
           fi
+
+      - name: Run collector tests
+        working-directory: collectors
+        run: python3 -m unittest tests.test_collectors
