@@ -2,17 +2,14 @@
 
 ![Agent Usage Plus](preview.png)
 
-![Bar widget](screenshots/bar-widget.png)
-![Claude Code panel](screenshots/claude-panel.png)
-![Codex panel](screenshots/codex-panel.png)
+<p align="center">
+  <img src="preview-full.png" alt="Usage panel with session, weekly, model and history breakdowns" width="49%">
+  <img src="preview-providers.png" alt="Provider configuration and bar preview" width="49%">
+</p>
 
 Native Omarchy bar widget for AI coding usage, limits, balances, pace, costs
 and history. It reads Omarchy and local collector records, so it works with
-both subscriptions and API accounts without storing credentials.
-
-Requires Omarchy with Quickshell plugin support; the plugin itself has no
-other runtime dependencies. Optional collector dependencies and setup are
-documented in [collector setup](collectors/README.md).
+subscriptions and API accounts without storing credentials.
 
 ## Install
 
@@ -37,7 +34,7 @@ omarchy plugin remove io.github.viganogabriele.agent-usage-plus
 Claude Code, Codex, Fireworks, OpenRouter, DeepSeek, Gemini, Cursor, Kimi,
 xAI/Grok and Z.AI/GLM.
 
-Claude Code and Codex use Omarchy's built-in records. The other providers are
+Claude Code and Codex use Omarchy's built-in records. Other providers use the
 optional collectors:
 
 ```bash
@@ -45,12 +42,16 @@ optional collectors:
 ~/.local/share/agent-usage-plus-collectors/bin/agent-usage-plus-collectors update
 ```
 
+Requires Omarchy with Quickshell plugin support. The plugin has no other
+runtime dependency; optional collector setup is documented in
+[collectors/README.md](collectors/README.md).
+
 The widget follows Omarchy's live theme. Warn is fixed amber (`#F2B705`), and
 notifications are off by default; when enabled, each provider alerts once at
 Warn and once at Critical.
 
-More: [collector setup](collectors/README.md), [record contract](docs/collector-contract.md),
-[manual QA](docs/manual-qa.md), [troubleshooting](docs/troubleshooting.md) and
-[contributing](CONTRIBUTING.md).
+Details: [collector setup](collectors/README.md),
+[record contract](docs/collector-contract.md), [manual QA](docs/manual-qa.md),
+[troubleshooting](docs/troubleshooting.md), [contributing](CONTRIBUTING.md).
 
 MIT licensed; see [LICENSE](LICENSE).
