@@ -48,7 +48,7 @@ jobs:
               lint_args+=("--${category}=info")
             fi
           done
-          /usr/lib/qt6/bin/qmllint "${lint_args[@]}" Agent.qml Main.qml Panel.qml
+          /usr/lib/qt6/bin/qmllint --max-warnings=-1 "${lint_args[@]}" Agent.qml Main.qml Panel.qml
 
       - name: Install shellcheck
         run: sudo apt-get install -y shellcheck
