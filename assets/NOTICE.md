@@ -5,6 +5,15 @@ static resources in [CodexBar](https://github.com/steipete/CodexBar), released
 under the MIT license. The paths were made explicit-color and split into the
 dark/light variants used by this QML plugin.
 
+`cursor.svg`/`cursor-light.svg`, `gemini.svg`/`gemini-light.svg`,
+`kimi.svg`/`kimi-light.svg`, and `openrouter.svg`/`openrouter-light.svg` use
+the mark paths from [Simple Icons](https://simpleicons.org)
+(`simple-icons` on npm), released under
+[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) — recolored
+into this project's dark/light variant convention; Gemini and OpenRouter use
+Simple Icons' documented brand color, the others this project's existing
+white/`#111111` scheme.
+
 Copyright (c) 2026 Peter Steinberger
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
