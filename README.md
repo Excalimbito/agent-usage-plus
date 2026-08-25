@@ -11,6 +11,9 @@ Native Omarchy bar widget for AI coding usage, limits, balances, pace, costs
 and history. It reads Omarchy and local collector records, so it works with
 subscriptions and API accounts without storing credentials.
 
+Forked from the MIT-licensed `omarchy.agents` widget bundled with Omarchy and
+expanded into a standalone plugin.
+
 ## Install
 
 ```bash
