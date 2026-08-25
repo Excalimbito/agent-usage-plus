@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file. The format is b
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-25
+
+### Added
+
+- Optional collector automation is available again through `collectors/install.sh`:
+  a user-level systemd timer can refresh configured API collectors, optional
+  Omarchy command-path links can be created, and transcript-derived cost
+  collection can be enabled explicitly.
+
 ## [2.0.0] - 2026-08-25
 
 ### Changed
