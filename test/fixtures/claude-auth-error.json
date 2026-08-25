@@ -1,0 +1,28 @@
+{
+  "id": "claude",
+  "name": "Claude",
+  "ready": false,
+  "hasLocalStats": true,
+  "hasPromptStats": true,
+  "usageStatusText": "Auth and endpoint problems replace the plan line",
+  "authHelpText": "Claude limits need a signed-in CLI. Run `claude` to sign in, or set CLAUDE_CONFIG_DIR if you use a non-default profile.",
+  "tierLabel": "",
+  "limits": [],
+  "todayPrompts": 6,
+  "todaySessions": 1,
+  "todayTotalTokens": 9000,
+  "todayTokensByModel": {},
+  "recentDays": [
+    { "date": "2026-08-17", "messageCount": 4 },
+    { "date": "2026-08-18", "messageCount": 2 },
+    { "date": "2026-08-19", "messageCount": 0 },
+    { "date": "2026-08-20", "messageCount": 5 },
+    { "date": "2026-08-21", "messageCount": 3 },
+    { "date": "2026-08-22", "messageCount": 1 },
+    { "date": "2026-08-23", "messageCount": 6 }
+  ],
+  "totalPrompts": 210,
+  "totalSessions": 40,
+  "activeDays": 15,
+  "modelUsage": {}
+}

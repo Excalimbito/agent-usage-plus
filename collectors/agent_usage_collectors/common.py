@@ -1,0 +1,243 @@
+"""Small, dependency-free helpers shared by the provider collectors.
+
+Collectors print one record to stdout.  ``run-all`` is responsible for the
+atomic state-file write, so these commands remain compatible with Omarchy's
+existing ``omarchy-agent-usage-update`` contract as well.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import socket
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+
+USER_AGENT = "agent-usage-plus-collectors/1"
+MAX_RESPONSE_BYTES = 1_048_576
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def base_record(agent_id: str, name: str, tier: str) -> dict[str, Any]:
+    return {
+        "id": agent_id,
+        "name": name,
+        "schemaVersion": 1,
+        "updatedAt": now_iso(),
+        "scope": "account",
+        "hasLocalStats": False,
+        "hasPromptStats": False,
+        "tierLabel": tier,
+        "limits": [],
+    }
+
+
+def usage_dir() -> Path:
+    return Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")) / "omarchy" / "agents" / "usage"
+
+
+# Numeric fields the collector contract asks a problem record to keep
+# reporting when it has them (docs/collector-contract.md, "Error states"): a
+# 429/5xx or an auth hiccup is a reason to show a status banner, not a reason
+# to blank out a reading that hasn't actually gone stale. Centralized here,
+# rather than left to each collector, so every provider gets it the same way
+# regardless of which updater (Omarchy's own or this package's standalone
+# runner) ends up writing the record to disk.
+_STALE_CARRY_FIELDS = ("limits", "balance", "cost", "todayPrompts", "recentDays", "modelUsage")
+
+
+def _carry_forward_stale_data(record: dict[str, Any]) -> dict[str, Any]:
+    agent_id = record.get("id")
+    if not isinstance(agent_id, str) or not agent_id:
+        return record
+    try:
+        previous = json.loads((usage_dir() / f"{agent_id}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return record
+    if not isinstance(previous, dict):
+        return record
+    carried = False
+    for field in _STALE_CARRY_FIELDS:
+        if not record.get(field) and previous.get(field):
+            record[field] = previous[field]
+            carried = True
+    # Keep the carried data's own timestamp rather than this failed run's
+    # "now" — the panel has no other way to tell the number stopped moving.
+    if carried and previous.get("updatedAt"):
+        record["updatedAt"] = previous["updatedAt"]
+    return record
+
+
+def auth_missing(record: dict[str, Any], help_text: str, *, status: str = "Waiting for API key") -> dict[str, Any]:
+    record.update({"ready": False, "usageStatusText": status, "authHelpText": help_text})
+    return _carry_forward_stale_data(record)
+
+
+def endpoint_problem(record: dict[str, Any], status: str, help_text: str, *, retry: bool = False) -> dict[str, Any]:
+    record.update({"ready": False, "usageStatusText": status, "authHelpText": help_text})
+    if retry:
+        record["retryAdvised"] = True
+    return _carry_forward_stale_data(record)
+
+
+def get_json(
+    url: str,
+    api_key: str,
+    timeout_seconds: float = 10,
+) -> dict[str, Any]:
+    return request_json(url, headers={"Authorization": f"Bearer {api_key}"}, timeout_seconds=timeout_seconds)
+
+
+def request_json(
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    body: dict[str, Any] | None = None,
+    timeout_seconds: float = 10,
+) -> dict[str, Any]:
+    """Make a small JSON request without ever including an upstream body in a record.
+
+    Provider endpoints differ in their auth scheme (API key, OAuth bearer, or
+    a dashboard session cookie).  Keeping the transport here makes their
+    collectors equally strict about bounded JSON-only responses while leaving
+    provider modules responsible for their public record shape.
+    """
+    request_headers = {"Accept": "application/json", "User-Agent": USER_AGENT}
+    request_headers.update(headers or {})
+    payload = None
+    method = "GET"
+    if body is not None:
+        payload = json.dumps(body, separators=(",", ":")).encode("utf-8")
+        request_headers["Content-Type"] = "application/json"
+        method = "POST"
+    request = Request(url, data=payload, method=method, headers=request_headers)
+    with urlopen(request, timeout=timeout_seconds) as response:
+        raw_response = response.read(MAX_RESPONSE_BYTES + 1)
+        if len(raw_response) > MAX_RESPONSE_BYTES:
+            raise ValueError("provider response is too large")
+        payload = json.loads(raw_response.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("provider returned a JSON value other than an object")
+    return payload
+
+
+def classify_failure(
+    record: dict[str, Any],
+    provider: str,
+    exc: BaseException,
+    auth_help: str,
+    *,
+    rejected_status: str = "API key rejected",
+) -> dict[str, Any]:
+    """Turn an expected probe failure into the panel's documented state."""
+    if isinstance(exc, HTTPError):
+        if exc.code in (401, 403):
+            return endpoint_problem(record, rejected_status, auth_help)
+        return endpoint_problem(
+            record,
+            f"{provider} usage unavailable",
+            f"{provider} returned HTTP {exc.code}. Check the provider status and try the next refresh.",
+        )
+    if isinstance(exc, (URLError, TimeoutError, socket.timeout)):
+        return endpoint_problem(
+            record,
+            f"{provider} usage unavailable",
+            f"Could not reach {provider}. Check your network or DNS; Agent Usage Plus will retry shortly.",
+            retry=True,
+        )
+    return endpoint_problem(
+        record,
+        f"{provider} usage unavailable",
+        f"{provider} returned an unexpected response. Update the collectors package or try the next refresh.",
+    )
+
+
+def find_key(env_name: str, config_provider: str, setting_name: str = "apiKey") -> str | None:
+    """Read an opt-in 0600 JSON credential file without ever echoing its value.
+
+    Environment variables take precedence.  The file is deliberately a
+    collector-owned config path; guessing random application configs creates
+    brittle credential detection and risks treating an unrelated key as this
+    provider's key.
+    """
+    value = os.environ.get(env_name, "").strip()
+    if value:
+        return value
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
+    path = config_home / "omarchy" / "agent-usage-plus" / "collectors.json"
+    try:
+        if path.stat().st_mode & 0o077:
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        candidate = data.get(config_provider, {}).get(setting_name) if isinstance(data, dict) else None
+        return candidate.strip() if isinstance(candidate, str) and candidate.strip() else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def find_any_key(
+    env_names: tuple[str, ...] | list[str],
+    config_provider: str,
+    setting_names: tuple[str, ...] | list[str] = ("apiKey",),
+) -> str | None:
+    """Find the first supported credential alias without exposing its value.
+
+    Some providers have regional or legacy environment names.  Keeping the
+    aliases in one helper makes their precedence explicit and preserves the
+    same mode-600, collector-owned config-file rule as :func:`find_key`.
+    """
+    for env_name in env_names:
+        value = os.environ.get(env_name, "").strip()
+        if value:
+            return value
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
+    path = config_home / "omarchy" / "agent-usage-plus" / "collectors.json"
+    try:
+        if path.stat().st_mode & 0o077:
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        provider = data.get(config_provider, {}) if isinstance(data, dict) else {}
+        if not isinstance(provider, dict):
+            return None
+        for setting_name in setting_names:
+            candidate = provider.get(setting_name)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+    except (OSError, ValueError, AttributeError):
+        return None
+    return None
+
+
+def find_setting(env_name: str, config_provider: str, setting_name: str) -> str | None:
+    """Return a non-secret companion-collector setting from the opt-in config.
+
+    This is deliberately restricted to the same mode-600 collector-owned
+    config file as ``find_key``.  It avoids guessing at provider application
+    settings or copying secrets from unrelated tools.
+    """
+    value = os.environ.get(env_name, "").strip()
+    if value:
+        return value
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
+    path = config_home / "omarchy" / "agent-usage-plus" / "collectors.json"
+    try:
+        if path.stat().st_mode & 0o077:
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        candidate = data.get(config_provider, {}).get(setting_name) if isinstance(data, dict) else None
+        return candidate.strip() if isinstance(candidate, str) and candidate.strip() else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def print_record(record: dict[str, Any]) -> None:
+    json.dump(record, sys.stdout, separators=(",", ":"), sort_keys=True)
+    sys.stdout.write("\n")

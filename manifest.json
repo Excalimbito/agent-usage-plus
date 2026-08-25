@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.viganogabriele.agent-usage-plus",
   "name": "Agent Usage Plus",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "author": "Gabriele Vigano",
   "license": "MIT",
-  "description": "Claude Code, Codex, and Fireworks usage, limits, and pace in a native Omarchy bar panel.",
+  "description": "Live AI coding-subscription usage, limits, API-rate estimates, and token history in a native Omarchy bar panel.",
   "kinds": [
     "bar-widget"
   ],
@@ -26,22 +26,79 @@
     "defaults": {
       "providers": {
         "claude": {
-          "enabled": true
+          "enabled": true,
+          "showInBar": true
         },
         "codex": {
-          "enabled": true
+          "enabled": true,
+          "showInBar": true
         },
         "fireworks": {
-          "enabled": true
+          "enabled": false,
+          "showInBar": false
+        },
+        "openrouter": {
+          "enabled": false,
+          "showInBar": false
+        },
+        "deepseek": {
+          "enabled": false,
+          "showInBar": false
+        },
+        "gemini": {
+          "enabled": false,
+          "showInBar": false
+        },
+        "cursor": {
+          "enabled": false,
+          "showInBar": false
+        },
+        "kimi": {
+          "enabled": false,
+          "showInBar": false
+        },
+        "xai": {
+          "enabled": false,
+          "showInBar": false
+        },
+        "zai": {
+          "enabled": false,
+          "showInBar": false
         }
       },
-      "refreshIntervalSec": 900,
+      "barCycleIntervalSec": 8,
+      "barCycleSlots": 1,
+      "refreshIntervalSec": 300,
       "syncMode": "Off",
       "syncDir": "",
       "syncFileName": "",
-      "syncDeviceId": ""
+      "syncDeviceId": "",
+      "notificationsEnabled": false,
+      "warnThresholdPct": 75,
+      "criticalThresholdPct": 90,
+      "historyDays": 30
     },
     "schema": [
+      {
+        "key": "barCycleIntervalSec",
+        "type": "integer",
+        "label": "Cycle interval (seconds)",
+        "min": 3,
+        "max": 120,
+        "step": 1,
+        "defaultValue": 8,
+        "description": "Only used when at least one provider is marked Cycle."
+      },
+      {
+        "key": "barCycleSlots",
+        "type": "integer",
+        "label": "Rotating bar slots",
+        "min": 0,
+        "max": 3,
+        "step": 1,
+        "defaultValue": 1,
+        "description": "How many providers rotate at once. Providers marked Fixed stay visible."
+      },
       {
         "key": "refreshIntervalSec",
         "type": "integer",
@@ -49,7 +106,7 @@
         "min": 30,
         "max": 3600,
         "step": 30,
-        "defaultValue": 900
+        "defaultValue": 300
       },
       {
         "key": "syncMode",
@@ -82,6 +139,43 @@
         "label": "Device id",
         "defaultValue": "",
         "description": "Optional stable device name used inside synced aggregate snapshots."
+      },
+      {
+        "key": "warnThresholdPct",
+        "type": "integer",
+        "label": "Warn threshold (%)",
+        "min": 1,
+        "max": 99,
+        "step": 1,
+        "defaultValue": 75,
+        "description": "Usage percentage at which meters switch to the warn color."
+      },
+      {
+        "key": "criticalThresholdPct",
+        "type": "integer",
+        "label": "Critical threshold (%)",
+        "min": 1,
+        "max": 100,
+        "step": 1,
+        "defaultValue": 90,
+        "description": "Usage percentage at which meters switch to the critical (urgent) color."
+      },
+      {
+        "key": "notificationsEnabled",
+        "type": "boolean",
+        "label": "Threshold notifications",
+        "defaultValue": false,
+        "description": "Notify once when a provider crosses Warn or Critical, not on every refresh."
+      },
+      {
+        "key": "historyDays",
+        "type": "integer",
+        "label": "History window (days)",
+        "min": 7,
+        "max": 90,
+        "step": 1,
+        "defaultValue": 30,
+        "description": "Documents how much daily history a collector is expected to report in recentDays; the panel never fetches more than what's already in a record. See docs/collector-contract.md."
       }
     ]
   },

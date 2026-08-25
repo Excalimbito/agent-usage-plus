@@ -1,0 +1,28 @@
+{
+  "id": "codex",
+  "name": "Codex",
+  "ready": false,
+  "hasLocalStats": true,
+  "hasPromptStats": true,
+  "usageStatusText": "Auth and endpoint problems replace the plan line",
+  "authHelpText": "The Codex app-server RPC could not be reached. Check that the codex CLI is installed and CODEX_HOME points at a valid profile.",
+  "tierLabel": "",
+  "limits": [],
+  "todayPrompts": 2,
+  "todaySessions": 1,
+  "todayTotalTokens": 3000,
+  "todayTokensByModel": {},
+  "recentDays": [
+    { "date": "2026-08-17", "messageCount": 1 },
+    { "date": "2026-08-18", "messageCount": 0 },
+    { "date": "2026-08-19", "messageCount": 0 },
+    { "date": "2026-08-20", "messageCount": 2 },
+    { "date": "2026-08-21", "messageCount": 0 },
+    { "date": "2026-08-22", "messageCount": 1 },
+    { "date": "2026-08-23", "messageCount": 2 }
+  ],
+  "totalPrompts": 70,
+  "totalSessions": 12,
+  "activeDays": 9,
+  "modelUsage": {}
+}

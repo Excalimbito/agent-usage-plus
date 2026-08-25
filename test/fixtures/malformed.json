@@ -1,0 +1,9 @@
+{
+  "id": "claude",
+  "name": "Claude",
+  "ready": true,
+  "limits": [ { "label": "Session", "percent": 0.4, },
+  "todayPrompts": "not a number"
+  // trailing comma and an unterminated array/object above, plus a comment:
+  // this file is deliberately invalid JSON so a parser must reject it and
+  // callers must fall back to a handled error state instead of crashing.
