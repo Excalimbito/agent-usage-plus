@@ -256,6 +256,17 @@ failing remote call — an auth or network problem with the limits endpoint
 shouldn't blank out numbers that came from local transcripts or a separate,
 working code path.
 
+A bundled collector gets this for the remote-only fields too
+(`limits`/`balance`/`cost`/`todayPrompts`/`recentDays`/`modelUsage`) without
+doing anything extra: build your problem record with `auth_missing()` or
+`endpoint_problem()` from `agent_usage_collectors.common`, and they carry
+forward the last successfully-read value for any of those fields your fresh
+record doesn't set, reusing its original `updatedAt` too — a lower refresh
+interval hitting a rate limit reads as "the number hasn't moved since
+&lt;time&gt;", not as a blank meter. A third-party collector that builds its
+problem record by hand should do the same against its own last-published
+`<id>.json`.
+
 When everything is fine, leave `usageStatusText` and `authHelpText` as
 empty strings (or omit them) — a non-empty `usageStatusText` is exactly
 what tells the panel to show a problem state instead of the normal plan
@@ -307,14 +318,11 @@ The one exception so far is `historyDays` (manifest schema, default `30`,
 range 7-90): it is a *hint to collector authors*, not something the panel
 enforces or fetches on its own. The panel only ever reads whatever is
 already sitting in a record's `recentDays` array (capped at 31 entries —
-see above) and lets the panel's history chart's range selector (24h / 7d /
-30d / 90d) re-slice that in-memory data; it never asks a collector for more
-history than the record already contains, and picking a range longer than
-what's actually present shows an explicit "not available" message rather
-than a chart that implies data that was never collected. `historyDays`
-exists purely so a collector author knows roughly how many days of
-`recentDays` history is worth writing to make the panel's longer range
-selections (30d, 90d) actually render a chart instead of that message.
+see above) and draws the expanded history view from the days actually
+present. It never asks a collector for more history or invents a longer
+range; if a collector has no usable history, the panel says so explicitly.
+`historyDays` exists purely so a collector author knows roughly how many days
+of `recentDays` history is worth writing.
 
 ## Minimal valid example
 

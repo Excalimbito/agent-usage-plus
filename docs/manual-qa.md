@@ -7,15 +7,20 @@ Automated tests cover extracted logic and record validation. They cannot show cl
 ## Bar
 
 - [ ] With one, two, and three enabled providers that have data and `showInBar: true`, each meter has a readable mark, meter, and percentage. A provider with a weekly limit also has the small weekly tick.
-- [ ] With four or more eligible providers, the bar shows at most three full meter groups followed by a `+N` indicator. Hovering it explains that the remaining subscriptions are in the panel; clicking it opens the full provider list rather than creating an inert gap.
+- [ ] With enough eligible providers to exceed the bundled collector safety ceiling, the bar shows the `+N` overflow indicator. Hovering it explains that the remaining subscriptions are in the panel; clicking it opens the full provider list rather than creating an inert gap.
 - [ ] Verify Off, Fixed, and Cycle roles. Fixed providers
   stay visible while the configured number of rotating slots advances at the
   interval. Test two rotating slots and one Fixed plus one Cycle. Middle-click
   advances the rotating slice without changing the panel's selected tab.
 - [ ] `showInBar: false` hides only the meter, not the provider's panel tab. `enabled: false` hides it from both and stops collector refreshes for it.
 - [ ] When every known provider is hidden from the bar or disabled, the module glyph remains visible and opens settings. On a machine with no discovered record at all, the widget correctly stays absent.
-- [ ] Check normal, warn, and critical meter colors at the configured boundaries. They must follow the current Omarchy theme rather than a fixed color, including after a theme change.
+- [ ] Check normal and critical meter colors at the configured boundaries and
+  confirm they follow the current Omarchy theme after a theme change. Warn is
+  intentionally the fixed amber `#F2B705` so it remains distinct from Critical.
 - [ ] Every provider mark is crisp (not soft/blurry) and reads as the same visual size at both bar scale and panel scale, including Claude and Codex against the rest of the set. Codex stays a plain white (or black on a light surface) mark, never tinted.
+- [ ] Hover or otherwise switch the bar to its light/transparent foreground and
+  confirm provider marks switch to the matching light/default assets in the bar
+  as well as in the panel; logos must remain in the same provider order.
 - [ ] Cycle the "Bar labels" setting through Icon, Icon + %, and Full: the bar shows only the mark, the mark with its percentage, and the mark with percentage and meter, respectively — with no leftover gap or misaligned spacing between slots in any mode.
 
 ## Panel hierarchy and interaction
@@ -25,6 +30,9 @@ Automated tests cover extracted logic and record validation. They cannot show cl
 - [ ] Compact view prioritizes error/help, limits or balance, daily tokens, then model tokens. It should not open scrolled partway down or clip content at 1366x768 and 1920x1080.
 - [ ] Details first show the selected provider's token use by model. If known, each row's right column is labelled API price. The derived total follows this table and says that it is not a bill or subscription price.
 - [ ] The history is a line chart across every recorded day. It shows a 0/50/100% token scale and start, middle, and end dates without a fake range selector.
+- [ ] A pace subtitle appears only for a real token quota with a rising
+  multi-day history that would exhaust before reset; it stays absent for one
+  day, flat, decreasing, percentage-only, or reset-first data.
 - [ ] `r` and Enter refresh, `j`/`k` scroll, Tab moves to the neighbouring panel, and Esc closes. Tab can focus the gear, expansion chevron, and cost disclosure; Enter, Space, and Return activate each.
 
 ## Settings
@@ -43,6 +51,7 @@ Automated tests cover extracted logic and record validation. They cannot show cl
 - [ ] With Notifications off (default), no `notify-send` fires no matter how high usage climbs.
 - [ ] With Notifications on, a provider crossing Warn produces exactly one notification, and crossing Critical produces exactly one more — not a repeat on every refresh while it stays above the line.
 - [ ] After the window resets (or on the next billing/session period), the same provider crossing Warn again produces a new notification.
+- [ ] Restarting the shell while a provider is already above a threshold does not replay that alert; it must first drop below the threshold and cross it again.
 
 ## Error and data states
 

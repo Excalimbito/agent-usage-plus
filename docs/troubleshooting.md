@@ -2,6 +2,15 @@
 
 The panel renders the latest usage record written by each collector. It does not invent limits or hide a collector failure, so the message shown in a provider tab is the useful place to start.
 
+## Colors or logos look wrong
+
+The panel follows Omarchy's live foreground, surfaces, tracks, fonts, and
+critical color. Provider marks choose their light/default SVG from the bar's
+current foreground, including hover states. Warn is intentionally fixed amber
+(`#F2B705`) and does not change with the theme; Critical uses Omarchy's urgent
+color. Restart the shell after a QML change because plugin components are
+cached.
+
 ## I see an auth or endpoint card
 
 The coloured card shows the provider status in its heading and the collector's next step below it. It is intentionally not a generic plugin error.
@@ -22,7 +31,10 @@ Check the three deliberately different visibility states:
   puts it in the rotating pool. `barCycleSlots` controls how many rotating
   meters are visible at once. Choosing Fixed or Cycle enables that provider.
 
-More than three eligible providers are collapsed into a `+N` bar indicator to prevent the bar from growing without bound. Click it to open the complete provider switcher. A provider with no usage record yet is also absent until the next collector refresh produces usable data.
+The bar lays out the configured providers up to the bundled collector safety
+ceiling; any future overflow is collapsed into a `+N` indicator. Click it to
+open the complete provider switcher. A provider with no usage record yet is
+also absent until the next collector refresh produces usable data.
 
 If every known provider is disabled or hidden from the bar, the module glyph remains so Settings are still reachable. A completely new machine with no discovered usage record has no widget at all; that is the intentional empty state.
 
