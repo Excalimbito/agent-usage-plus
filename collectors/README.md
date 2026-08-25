@@ -28,13 +28,12 @@ mistaking account credit for one. DeepSeek can return both CNY and USD
 ledgers; the panel record has one currency slot, so USD is preferred when
 present and otherwise the first provider-returned ledger is shown.
 
-## Install and run
+## Run
 
 From a clone of this repository:
 
 ```bash
-./collectors/install.sh
-~/.local/share/agent-usage-plus-collectors/bin/agent-usage-plus-collectors update
+./collectors/bin/agent-usage-plus-collectors update
 ```
 
 The runner atomically writes `openrouter.json`, `deepseek.json`, `xai.json`,
@@ -44,29 +43,8 @@ The runner atomically writes `openrouter.json`, `deepseek.json`, `xai.json`,
 you want to inspect only its JSON output:
 
 ```bash
-~/.local/share/agent-usage-plus-collectors/bin/omarchy-agent-usage-openrouter
+./collectors/bin/omarchy-agent-usage-openrouter
 ```
-
-To refresh in the background without modifying Omarchy, install the optional
-user timer. It runs at boot and every ten minutes:
-
-```bash
-./collectors/install.sh --enable-timer
-systemctl --user status agent-usage-plus-collectors.timer
-```
-
-To have Omarchy's own `omarchy agent usage-update` invoke the collectors on
-its normal refresh, explicitly choose a *writable* Omarchy bin directory:
-
-```bash
-./collectors/install.sh --omarchy-bin "$OMARCHY_PATH/bin"
-```
-
-The installer refuses a non-writable target; it never uses `sudo` or modifies
-Omarchy's updater. If your distribution's `$OMARCHY_PATH/bin` is
-root-owned (as `/usr/share/omarchy/bin` normally is), use the timer, or ask
-your system administrator to install the two symlinks. Re-run `install.sh`
-after updating this repository; it replaces only its own package and symlinks.
 
 ## Claude and Codex API-cost estimates
 
@@ -86,12 +64,9 @@ AGENT_USAGE_PLUS_CODEX_BASE_COLLECTOR="$HOME/.local/bin/omarchy-agent-usage-code
   ./collectors/bin/omarchy-agent-usage-codex-cost | jq '.cost'
 ```
 
-With `--with-transcript-cost`, an existing regular user collector is moved
-once to a recoverable `agent-usage-plus-base-<provider>` file; the wrapper
-prefers that preserved scanner over the packaged copy and then adds cost. The backup name is outside
-Omarchy's collector-discovery pattern, so it is never shown as a duplicate
-provider. Unknown symlinks and a pre-existing backup stop the install rather
-than being overwritten. See
+The wrapper can also use an explicit base collector path through
+`AGENT_USAGE_PLUS_CLAUDE_BASE_COLLECTOR` or
+`AGENT_USAGE_PLUS_CODEX_BASE_COLLECTOR`. See
 [`../docs/cost-estimation.md`](../docs/cost-estimation.md) for price-list
 version and model-coverage rules.
 
@@ -109,8 +84,8 @@ export ZAI_API_KEY='…'
 export KIMI_API_KEY='…'
 ```
 
-For a user timer, where an interactive shell's environment is usually not
-available, create this **mode 600** file instead:
+For repeated local runs, create this **mode 600** file instead of exporting
+environment variables every time:
 
 ```json
 {

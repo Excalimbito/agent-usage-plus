@@ -37,12 +37,11 @@ omarchy plugin remove io.github.viganogabriele.agent-usage-plus
 Claude Code, Codex, Fireworks, OpenRouter, DeepSeek, Gemini, Cursor, Kimi,
 xAI/Grok and Z.AI/GLM.
 
-Claude Code and Codex use Omarchy's built-in records. Other providers use the
-optional collectors:
+Claude Code and Codex use Omarchy's built-in records. Other providers can be
+refreshed with the optional collectors:
 
 ```bash
-./collectors/install.sh
-~/.local/share/agent-usage-plus-collectors/bin/agent-usage-plus-collectors update
+./collectors/bin/agent-usage-plus-collectors update
 ```
 
 Requires Omarchy with Quickshell plugin support. The plugin has no other

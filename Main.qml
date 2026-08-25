@@ -53,8 +53,8 @@ Item {
       waitForEnd: true
       onStreamFinished: {
         root.applyAgentListing(text)
-        // The companion package can refresh records from its own systemd
-        // timer. It does not run through updateProcess, so reload after each
+        // External refresh jobs can write records independently. They do not
+        // run through updateProcess, so reload after each
         // bounded directory scan as well as after this widget's own update.
         root.reloadAllAgents()
       }
@@ -157,9 +157,9 @@ Item {
   }
 
   // Records are atomically replaced by both Omarchy's updater and the
-  // optional standalone companion timer. FileView would observe those writes
+  // optional standalone companion jobs. FileView would observe those writes
   // but has no bounded-read mode, so poll the already bounded directory and
-  // per-record readers instead. This makes a first install and an external
+  // per-record readers instead. This makes first use and an external
   // refresh appear without needing a shell restart.
   Timer {
     interval: 60000
@@ -414,11 +414,8 @@ Item {
 
   // Automatic rotation for `barMode: "cycle"`. Manual advances (cycleNext(),
   // wired to the bar's middle-click in cycle mode — see Panel.qml) call
-  // advanceCycle() and then restart this timer, so a manual click and the
-  // next automatic tick don't double-skip a provider: the next automatic
-  // tick always lands `barCycleIntervalSec` after whichever advance
-  // (manual or automatic) happened most recently, not on a fixed
-  // wall-clock schedule from when the timer first started.
+  // advanceCycle() and then restart the rotation clock, so a manual click and
+  // the next automatic tick don't double-skip a provider.
   Timer {
     id: cycleTimer
     interval: root.barCycleIntervalSec * 1000
@@ -435,8 +432,8 @@ Item {
   }
 
   // The manual "cycle to next provider" action: advances immediately, then
-  // restarts the timer so the next automatic tick waits a full interval
-  // from *this* advance rather than from whenever the timer last fired.
+  // restarts the rotation clock so the next automatic tick waits a full
+  // interval from this advance.
   function cycleNext() {
     if (root.barCycleSlots <= 0 || root.cycleBarProviders.length === 0) return
     advanceCycle()
