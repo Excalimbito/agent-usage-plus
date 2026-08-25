@@ -10,8 +10,9 @@ Native Omarchy bar widget for AI coding usage, limits, balances, pace, costs
 and history. It reads Omarchy and local collector records, so it works with
 both subscriptions and API accounts without storing credentials.
 
-Requires Omarchy with Quickshell plugin support. Optional collector
-dependencies are documented in [collector setup](collectors/README.md).
+Requires Omarchy with Quickshell plugin support; the plugin itself has no
+other runtime dependencies. Optional collector dependencies and setup are
+documented in [collector setup](collectors/README.md).
 
 ## Install
 
@@ -19,8 +20,15 @@ dependencies are documented in [collector setup](collectors/README.md).
 omarchy plugin add https://github.com/viganogabriele/agent-usage-plus.git --enable
 ```
 
+## Update
+
 ```bash
 omarchy plugin update io.github.viganogabriele.agent-usage-plus
+```
+
+## Remove
+
+```bash
 omarchy plugin remove io.github.viganogabriele.agent-usage-plus
 ```
 
