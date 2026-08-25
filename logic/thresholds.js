@@ -9,6 +9,12 @@
 var DEFAULT_WARN_PCT = 75
 var DEFAULT_CRITICAL_PCT = 90
 
+var SEVERITY_RANK = {
+  ok: 0,
+  warn: 1,
+  critical: 2
+}
+
 // Classifies a percentage-point value (0-100 scale, matching the
 // warnThresholdPct/criticalThresholdPct manifest settings) into one of
 // "ok" | "warn" | "critical".
@@ -33,10 +39,35 @@ function severityFor(pct, thresholds) {
   return "ok"
 }
 
+function normaliseSeverity(value) {
+  return value === "warn" || value === "critical" ? value : "ok"
+}
+
+// Returns the state after a refresh and the one notification, if any, that
+// refresh crossed. An unknown previous state establishes a baseline without
+// notifying: a widget starting while usage is already high did not observe a
+// crossing. A jump from a known ok state straight to critical emits only
+// critical, because the observer did not see a warn crossing. The returned
+// state must be stored even when no notification is emitted so a later drop
+// below a threshold rearms the next upward crossing without repeating on
+// every refresh while the value remains in the same band.
+function notificationTransition(previousSeverity, currentSeverity) {
+  var hasPrevious = previousSeverity === "ok"
+    || previousSeverity === "warn"
+    || previousSeverity === "critical"
+  var previous = normaliseSeverity(previousSeverity)
+  var current = normaliseSeverity(currentSeverity)
+  return {
+    severity: current,
+    notification: hasPrevious && SEVERITY_RANK[current] > SEVERITY_RANK[previous] ? current : ""
+  }
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     DEFAULT_WARN_PCT: DEFAULT_WARN_PCT,
     DEFAULT_CRITICAL_PCT: DEFAULT_CRITICAL_PCT,
-    severityFor: severityFor
+    severityFor: severityFor,
+    notificationTransition: notificationTransition
   }
 }

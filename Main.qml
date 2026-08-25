@@ -170,7 +170,7 @@ Item {
 
   // -------------------------------------------------------------- refresh
 
-  property int refreshIntervalSec: Math.max(30, Number(setting("refreshIntervalSec", 900)))
+  property int refreshIntervalSec: Math.max(30, Number(setting("refreshIntervalSec", 300)))
   property string pendingUpdateKind: ""
 
   Timer {
@@ -311,7 +311,37 @@ Item {
       var syncedDisplay = displayProvider({ id: syncedId, name: stats.providerName || syncedId })
       if (Aggregate.providerHasData(syncedDisplay)) result.push(syncedDisplay)
     }
-    return result
+    return Aggregate.applyProviderOrder(result, root.providerOrder)
+  }
+
+  // A user's drag-to-reorder result (Panel.qml's provider switcher), as a
+  // plain array of provider ids. Feeds both the bar layout and the panel
+  // switcher below, since both are built from enabledProviders — dragging a
+  // mark in one place is meant to reorder it everywhere.
+  //
+  // Stored double-JSON-encoded (a string containing the array's JSON text,
+  // not a bare JSON array) because of an `omarchy bar set ... --json` bug:
+  // a top-level array value with more than one element makes it miscount
+  // its own arguments and fail every time ("Too many arguments provided"),
+  // while the exact same array encoded as a JSON *string* round-trips fine.
+  // A plain string setting has no such problem, so unwrap it back into an
+  // array on read instead.
+  readonly property var providerOrder: {
+    var raw = setting("providerOrder", "[]")
+    try {
+      var parsed = JSON.parse(typeof raw === "string" ? raw : "[]")
+      return Array.isArray(parsed) ? parsed : []
+    } catch (e) {
+      return []
+    }
+  }
+
+  function setProviderOrder(ids) {
+    var clean = []
+    for (var i = 0; i < (ids ? ids.length : 0); i++) {
+      if (typeof ids[i] === "string" && ids[i]) clean.push(ids[i])
+    }
+    writeSetting("providerOrder", JSON.stringify(JSON.stringify(clean)))
   }
 
   function providerEnabled(id) {
@@ -348,22 +378,31 @@ Item {
   // Only meaningful in Cycle mode. It wraps against the rotating pool, not
   // the panel's selected-provider index.
   property int barCycleIndex: 0
-  readonly property int barSlotLimit: 3
+  // No cap of our own: Fixed providers fill this budget first, and only
+  // what's left goes to rotating slots (see selectBarLayout), so an
+  // arbitrary number here silently shrinks Cycle slots the person actually
+  // asked for the moment enough providers are marked Fixed. The real, non-
+  // arbitrary ceiling is however many providers exist to mark in the first
+  // place — selectBarLayout's own internal clamp already stops at 10, the
+  // total the bundled collectors ship — so this is left high enough to
+  // never be the thing doing the trimming.
+  readonly property int barSlotLimit: 999
 
-  // How much each bar slot shows next to its provider mark: the meter graphic
-  // and percent text ("full", the original/default look), just the percent
-  // text ("iconPercent"), or nothing but the mark itself ("icon"), for a bar
-  // that stays as compact as possible. Global rather than per-provider —
-  // this is about the bar's overall density, not any one subscription.
-  readonly property string barLabelMode: {
-    var v = String(setting("barLabelMode", "full"))
-    return v === "icon" || v === "iconPercent" ? v : "full"
+  function booleanSetting(name, fallback) {
+    var value = setting(name, fallback)
+    if (typeof value === "boolean") return value
+    if (typeof value === "string") {
+      var text = value.trim().toLowerCase()
+      if (text === "true" || text === "1" || text === "on") return true
+      if (text === "false" || text === "0" || text === "off" || text === "") return false
+    }
+    return fallback
   }
 
   // Off by default: a notification is an interruption, and nobody asked for
   // one just by installing the widget. See Panel.qml for the actual
   // threshold-crossing watch and the notify-send dispatch queue.
-  readonly property bool notificationsEnabled: !!setting("notificationsEnabled", false)
+  readonly property bool notificationsEnabled: booleanSetting("notificationsEnabled", false)
 
   readonly property var showInBarList: Aggregate.selectBarProviders(enabledProviders, settings)
   readonly property var barLayout: Aggregate.selectBarLayout(
@@ -510,19 +549,31 @@ Item {
     writeSetting("providers", JSON.stringify(providers))
   }
 
-  function setProviderEnabled(id, value) { setProviderField(id, "enabled", !!value) }
+  function setProviderEnabled(id, value) {
+    // Mirror setProviderBarRole's own symmetry: choosing a bar role turns
+    // Enabled on, so turning Enabled off should turn the bar role back off
+    // too — otherwise a disabled provider still reads as Fixed/Cycle in
+    // Settings (even though enabledProviders already keeps it out of the
+    // bar), and reappears with its old role the moment it's re-enabled.
+    var fields = { enabled: !!value }
+    if (!value) {
+      fields.showInBar = false
+      fields.barRole = "fixed"
+    }
+    setProviderFields(id, fields)
+  }
   function setProviderShowInBar(id, value) { setProviderField(id, "showInBar", !!value) }
+
+  function setProviderLabelMode(id, value) {
+    var v = value === "icon" || value === "iconPercent" ? value : "full"
+    setProviderField(id, "barLabelMode", v)
+  }
   function setBarCycleIntervalSec(value) {
     writeSetting("barCycleIntervalSec", String(Math.max(3, Math.min(120, Math.round(Number(value))))))
   }
 
   function setBarCycleSlots(value) {
     writeSetting("barCycleSlots", String(Math.max(0, Math.min(3, Math.round(Number(value))))))
-  }
-
-  function setBarLabelMode(value) {
-    var v = value === "icon" || value === "iconPercent" ? value : "full"
-    writeSetting("barLabelMode", JSON.stringify(v))
   }
 
   function setNotificationsEnabled(value) {

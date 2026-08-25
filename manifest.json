@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.viganogabriele.agent-usage-plus",
   "name": "Agent Usage Plus",
-  "version": "1.5.0",
+  "version": "2.0.0",
   "author": "Gabriele Vigano",
   "license": "MIT",
   "description": "Live AI coding-subscription usage, limits, API-rate estimates, and token history in a native Omarchy bar panel.",
@@ -68,11 +68,12 @@
       },
       "barCycleIntervalSec": 8,
       "barCycleSlots": 1,
-      "refreshIntervalSec": 900,
+      "refreshIntervalSec": 300,
       "syncMode": "Off",
       "syncDir": "",
       "syncFileName": "",
       "syncDeviceId": "",
+      "notificationsEnabled": false,
       "warnThresholdPct": 75,
       "criticalThresholdPct": 90,
       "historyDays": 30
@@ -105,7 +106,7 @@
         "min": 30,
         "max": 3600,
         "step": 30,
-        "defaultValue": 900
+        "defaultValue": 300
       },
       {
         "key": "syncMode",
@@ -158,6 +159,13 @@
         "step": 1,
         "defaultValue": 90,
         "description": "Usage percentage at which meters switch to the critical (urgent) color."
+      },
+      {
+        "key": "notificationsEnabled",
+        "type": "boolean",
+        "label": "Threshold notifications",
+        "defaultValue": false,
+        "description": "Notify once when a provider crosses Warn or Critical, not on every refresh."
       },
       {
         "key": "historyDays",

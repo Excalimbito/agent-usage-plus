@@ -18,6 +18,14 @@
 // textFormat on directly. Neutralizing the risky characters and capping
 // sizes here, once, covers every sink at once.
 
+// Records and synced snapshots are untrusted. Use prototype-less maps for
+// every collection keyed by a provider, model, device, or saved order id so
+// names such as `constructor` and `toString` are ordinary data keys rather
+// than inherited JavaScript properties.
+function safeMap() {
+  return Object.create(null)
+}
+
 function numberValue(value) {
   var n = Number(value || 0)
   return isFinite(n) ? Math.round(n) : 0
@@ -77,7 +85,7 @@ function capRecentDays(raw) {
 // displays — that slice happens after this data is built and merged.
 function capModelUsage(raw) {
   var usage = raw && typeof raw === "object" ? raw : {}
-  var out = {}
+  var out = safeMap()
   var count = 0
   for (var id in usage) {
     if (count >= 100) break
@@ -241,12 +249,12 @@ function combineTokenBuckets(additive, target, source) {
 function aggregateSnapshots(snapshots, maxSnapshots) {
   var snapshotLimit = maxSnapshots || 50
   var dates = recentDateStrings()
-  var devices = {}
-  var providers = {}
+  var devices = safeMap()
+  var providers = safeMap()
 
   function providerAcc(id) {
     if (providers[id]) return providers[id]
-    var recentByDay = {}
+    var recentByDay = safeMap()
     for (var d = 0; d < dates.length; d++) recentByDay[dates[d]] = 0
     providers[id] = {
       providerId: id,
@@ -257,14 +265,14 @@ function aggregateSnapshots(snapshots, maxSnapshots) {
       todayPrompts: 0,
       todaySessions: 0,
       todayTotalTokens: 0,
-      todayTokensByModel: ({}),
+      todayTokensByModel: safeMap(),
       recentByDay: recentByDay,
       totalPrompts: 0,
       totalSessions: 0,
       activeDays: 0,
-      activeDates: ({}),
-      modelUsage: ({}),
-      devices: ({})
+      activeDates: safeMap(),
+      modelUsage: safeMap(),
+      devices: safeMap()
     }
     return providers[id]
   }
@@ -334,7 +342,7 @@ function aggregateSnapshots(snapshots, maxSnapshots) {
     }
   }
 
-  var outProviders = {}
+  var outProviders = safeMap()
   for (var id in providers) {
     var acc2 = providers[id]
     var recentDays = []
@@ -403,7 +411,7 @@ function providerSnapshot(record) {
 // mirrors Main.qml's settings-backed `providerEnabled()`.
 function buildLocalSnapshot(records, deviceId, isProviderEnabled) {
   var list = Array.isArray(records) ? records : []
-  var providerMap = {}
+  var providerMap = safeMap()
   var count = 0
   for (var i = 0; i < list.length; i++) {
     var record = list[i]
@@ -435,7 +443,7 @@ function buildLocalSnapshot(records, deviceId, isProviderEnabled) {
 // summing is exactly what a reader would expect from a fleet-wide total.
 function allProviderModelUsage(providers) {
   var list = Array.isArray(providers) ? providers : []
-  var combined = {}
+  var combined = safeMap()
   for (var i = 0; i < list.length; i++) {
     var provider = list[i] || {}
     var usage = capModelUsage(provider.modelUsage)
@@ -515,6 +523,37 @@ function selectBarProviders(providers, settings) {
   })
 }
 
+// Applies a user's saved drag-to-reorder result to a provider list. `order`
+// is a plain array of provider ids (most-recent drag wins, oldest first);
+// anything in `providers` that isn't in it yet — a provider added after the
+// order was last saved — is appended afterwards in alphabetical order, so a
+// newly discovered provider gets a stable, predictable spot instead of
+// jumping to wherever object-insertion order happened to put it. Used for
+// both the settings list and (via Main.qml's enabledProviders) the bar and
+// panel switcher, so dragging a mark in one place reorders it everywhere.
+function applyProviderOrder(providers, order) {
+  var list = Array.isArray(providers) ? providers : []
+  var orderList = Array.isArray(order) ? order : []
+  var rank = safeMap()
+  for (var i = 0; i < orderList.length; i++) {
+    var id = orderList[i]
+    if (typeof id === "string" && !(id in rank)) rank[id] = i
+  }
+  var known = []
+  var unknown = []
+  for (var j = 0; j < list.length; j++) {
+    var item = list[j]
+    var pid = item && item.providerId
+    if (typeof pid === "string" && Object.prototype.hasOwnProperty.call(rank, pid)) known.push(item)
+    else unknown.push(item)
+  }
+  known.sort(function(a, b) { return rank[a.providerId] - rank[b.providerId] })
+  unknown.sort(function(a, b) {
+    return a.providerId < b.providerId ? -1 : (a.providerId > b.providerId ? 1 : 0)
+  })
+  return known.concat(unknown)
+}
+
 // Builds the compact bar layout used by Main.qml. `showInBar` remains the
 // compatibility gate: false always means the provider is out of the bar.
 // Newer settings can add `barRole` (`fixed` or `cycle`) to choose whether an
@@ -525,8 +564,9 @@ function selectBarProviders(providers, settings) {
 //
 // `cycleSlots` is the number of rotating meters visible at once. The result
 // is capped by `slotLimit` so a large provider set cannot stretch the bar.
-// Fixed providers are placed first, followed by a contiguous rotating slice;
-// the slice wraps and never duplicates a fixed provider.
+// Fixed providers are selected first when slots are scarce, followed by a
+// contiguous rotating slice; the final visible list is put back into the
+// caller's provider order so the bar and panel never disagree visually.
 function selectBarLayout(providers, settings, mode, cycleIndex, cycleSlots, slotLimit) {
   var list = Array.isArray(providers) ? providers : []
   var eligible = selectBarProviders(list, settings)
@@ -588,8 +628,15 @@ function selectBarLayout(providers, settings, mode, cycleIndex, cycleSlots, slot
     }
   }
 
+  // Fixed providers still win the capacity calculation above, but their
+  // role must not silently override the person's drag-to-reorder choice.
+  // Sorting the selected subset against `eligible` also keeps every visible
+  // bar group in exactly the same order as the panel switcher.
+  var visible = fixedVisible.concat(rotating)
+  visible.sort(function(a, b) { return eligible.indexOf(a) - eligible.indexOf(b) })
+
   return {
-    providers: fixedVisible.concat(rotating),
+    providers: visible,
     fixed: fixed,
     cycling: cycling,
     cycleSlots: requestedSlots,
@@ -694,6 +741,7 @@ if (typeof module !== "undefined" && module.exports) {
     buildLocalSnapshot: buildLocalSnapshot,
     mergeProviderDisplay: mergeProviderDisplay,
     selectBarProviders: selectBarProviders,
+    applyProviderOrder: applyProviderOrder,
     selectBarLayout: selectBarLayout,
     providerUsagePercent: providerUsagePercent,
     selectPrimaryProvider: selectPrimaryProvider,

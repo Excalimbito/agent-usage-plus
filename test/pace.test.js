@@ -7,24 +7,16 @@ const Pace = require("../logic/pace.js")
 const now = Date.parse("2026-08-23T12:00:00Z")
 const resetTomorrow = "2026-08-24T12:00:00Z"
 
-test("projectExhaustion: flat daily history forecasts the same daily burn", () => {
-  const result = Pace.projectExhaustion([100, 100, 100], { tokenLimit: 1000 }, resetTomorrow, now)
-  assert.ok(result)
-  assert.equal(result.usedTokens, 300)
-  assert.equal(result.dailyTokens, 100)
-  assert.equal(result.untilExhaustionMs, 7 * 24 * 60 * 60 * 1000)
-  assert.equal(result.exhaustsBeforeReset, false)
+test("projectExhaustion: flat daily history withholds a forecast", () => {
+  assert.equal(Pace.projectExhaustion([100, 100, 100], { tokenLimit: 1000 }, resetTomorrow, now), null)
 })
 
 test("projectExhaustion: decreasing history floors a non-positive next-day trend and withholds prediction", () => {
   assert.equal(Pace.projectExhaustion([300, 200, 100], { tokenLimit: 1000 }, resetTomorrow, now), null)
 })
 
-test("projectExhaustion: one day uses observed burn without inventing a trend", () => {
-  const result = Pace.projectExhaustion([{ messageCount: 250 }], { tokenLimit: 1000 }, "2026-08-30T12:00:00Z", now)
-  assert.ok(result)
-  assert.equal(result.dailyTokens, 250)
-  assert.equal(result.untilExhaustionMs, 3 * 24 * 60 * 60 * 1000)
+test("projectExhaustion: one day withholds a forecast", () => {
+  assert.equal(Pace.projectExhaustion([{ messageCount: 250 }], { tokenLimit: 1000 }, "2026-08-30T12:00:00Z", now), null)
 })
 
 test("projectExhaustion: increasing history forecasts an increasing pace", () => {

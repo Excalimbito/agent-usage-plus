@@ -243,8 +243,33 @@ test("aggregateSnapshots: account-scoped stats take the widest value instead of 
 
 test("aggregateSnapshots: an empty snapshot list produces an empty provider map", () => {
   const result = Aggregate.aggregateSnapshots([])
-  assert.deepEqual(result.providers, {})
+  assert.deepEqual(Object.keys(result.providers), [])
   assert.equal(result.deviceCount, 0)
+})
+
+test("aggregateSnapshots: prototype-named providers are ordinary data keys", () => {
+  const ids = ["constructor", "toString", "valueOf", "hasOwnProperty"]
+  const providers = {}
+  for (const id of ids) providers[id] = { providerName: id, todayPrompts: 1 }
+
+  const result = Aggregate.aggregateSnapshots([{ deviceId: "constructor", providers }])
+
+  assert.deepEqual(Object.keys(result.providers).sort(), ids.slice().sort())
+  for (const id of ids) {
+    assert.equal(result.providers[id].providerId, id)
+    assert.equal(result.providers[id].providerName, id)
+    assert.deepEqual(result.providers[id].devices, ["constructor"])
+  }
+  assert.deepEqual(result.devices, ["constructor"])
+})
+
+test("capModelUsage: prototype-named model ids remain data instead of mutating the map prototype", () => {
+  const usage = JSON.parse('{"__proto__":{"inputTokens":1},"constructor":{"outputTokens":2}}')
+  const result = Aggregate.capModelUsage(usage)
+
+  assert.equal(result["__proto__"].inputTokens, 1)
+  assert.equal(result.constructor.outputTokens, 2)
+  assert.deepEqual(Object.keys(result).sort(), ["__proto__", "constructor"])
 })
 
 // --------------------------------------------------- enabled/disabled providers
@@ -309,9 +334,9 @@ test("allProviderModelUsage: the same model id reported by two providers sums in
 })
 
 test("allProviderModelUsage: an empty/garbage provider list produces an empty map without throwing", () => {
-  assert.deepEqual(Aggregate.allProviderModelUsage([]), {})
+  assert.deepEqual(Object.keys(Aggregate.allProviderModelUsage([])), [])
   assert.doesNotThrow(() => Aggregate.allProviderModelUsage(null))
-  assert.deepEqual(Aggregate.allProviderModelUsage([null, {}, undefined]), {})
+  assert.deepEqual(Object.keys(Aggregate.allProviderModelUsage([null, {}, undefined])), [])
 })
 
 // --------------------------------------------------------------- malformed
@@ -470,7 +495,18 @@ test("selectBarLayout: role layout keeps unassigned providers fixed", () => {
   const layout = Aggregate.selectBarLayout(providers, settings, "roles", 0, 1, 3)
   assert.deepEqual(layout.fixed.map((p) => p.providerId), ["claude", "gemini"])
   assert.deepEqual(layout.cycling.map((p) => p.providerId), ["codex"])
-  assert.deepEqual(layout.providers.map((p) => p.providerId), ["claude", "gemini", "codex"])
+  assert.deepEqual(layout.providers.map((p) => p.providerId), ["claude", "codex", "gemini"])
+})
+
+test("selectBarLayout: fixed priority does not override saved provider order", () => {
+  const providers = providerList("codex", "claude", "gemini")
+  const settings = { providers: {
+    codex: { barRole: "cycle", showInBar: true },
+    claude: { barRole: "fixed", showInBar: true },
+    gemini: { barRole: "cycle", showInBar: true }
+  } }
+  const layout = Aggregate.selectBarLayout(providers, settings, "roles", 0, 1, 2)
+  assert.deepEqual(layout.providers.map((p) => p.providerId), ["codex", "claude"])
 })
 
 test("selectBarLayout: fixed providers consume slots before rotating providers", () => {
@@ -533,4 +569,27 @@ test("providerUsagePercent: prefers a window titled Session, falls back to the f
   assert.equal(Aggregate.providerUsagePercent(balanceOnly), 0.75)
 
   assert.equal(Aggregate.providerUsagePercent({ limits: [] }), -1)
+})
+
+test("applyProviderOrder: sorts known providers by their saved order, unknown ones alphabetically after", () => {
+  const providers = [
+    { providerId: "zai" },
+    { providerId: "claude" },
+    { providerId: "codex" },
+    { providerId: "gemini" },
+  ]
+  const ordered = Aggregate.applyProviderOrder(providers, ["codex", "claude"])
+  assert.deepEqual(ordered.map((p) => p.providerId), ["codex", "claude", "gemini", "zai"])
+})
+
+test("applyProviderOrder: an empty or missing saved order leaves the list alphabetical", () => {
+  const providers = [{ providerId: "zai" }, { providerId: "claude" }]
+  assert.deepEqual(Aggregate.applyProviderOrder(providers, []).map((p) => p.providerId), ["claude", "zai"])
+  assert.deepEqual(Aggregate.applyProviderOrder(providers, undefined).map((p) => p.providerId), ["claude", "zai"])
+})
+
+test("applyProviderOrder: a stale id no longer present in the provider list is simply ignored", () => {
+  const providers = [{ providerId: "claude" }, { providerId: "codex" }]
+  const ordered = Aggregate.applyProviderOrder(providers, ["ghost", "codex", "claude"])
+  assert.deepEqual(ordered.map((p) => p.providerId), ["codex", "claude"])
 })

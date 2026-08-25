@@ -45,3 +45,51 @@ test("severityFor: falls back to defaults when thresholds are missing or non-num
   assert.equal(Thresholds.severityFor(80, { warn: "x", critical: null }), "warn")
   assert.equal(Thresholds.severityFor(95), "critical")
 })
+
+test("notificationTransition: emits once when warn is crossed, then stays quiet", () => {
+  assert.deepEqual(Thresholds.notificationTransition("ok", "warn"), {
+    severity: "warn",
+    notification: "warn"
+  })
+  assert.deepEqual(Thresholds.notificationTransition("warn", "warn"), {
+    severity: "warn",
+    notification: ""
+  })
+})
+
+test("notificationTransition: emits once more at critical, not on every higher percent", () => {
+  assert.deepEqual(Thresholds.notificationTransition("warn", "critical"), {
+    severity: "critical",
+    notification: "critical"
+  })
+  assert.deepEqual(Thresholds.notificationTransition("critical", "critical"), {
+    severity: "critical",
+    notification: ""
+  })
+})
+
+test("notificationTransition: an unknown first sample establishes a quiet baseline", () => {
+  assert.deepEqual(Thresholds.notificationTransition(undefined, "critical"), {
+    severity: "critical",
+    notification: ""
+  })
+  assert.deepEqual(Thresholds.notificationTransition("ok", "critical"), {
+    severity: "critical",
+    notification: "critical"
+  })
+})
+
+test("notificationTransition: descending below a threshold rearms the next crossing", () => {
+  assert.deepEqual(Thresholds.notificationTransition("critical", "warn"), {
+    severity: "warn",
+    notification: ""
+  })
+  assert.deepEqual(Thresholds.notificationTransition("warn", "ok"), {
+    severity: "ok",
+    notification: ""
+  })
+  assert.deepEqual(Thresholds.notificationTransition("ok", "warn"), {
+    severity: "warn",
+    notification: "warn"
+  })
+})

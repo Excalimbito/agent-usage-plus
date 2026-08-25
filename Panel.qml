@@ -18,11 +18,10 @@ Panel {
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
-  // "Warn" sits between foreground and urgent — derived from the two
-  // theme-aware colors above (via Qt.tint) rather than a new hardcoded hex,
-  // so it keeps adapting to whatever the active Omarchy theme's foreground
-  // and urgent colors are.
-  readonly property color warn: Qt.tint(foreground, alpha(urgent, 0.55))
+  // A fixed amber rather than a foreground/urgent blend: warn needs to read
+  // as its own distinct traffic-light color at a glance, not a paler shade
+  // of critical that's easy to mistake for it against a dim theme.
+  readonly property color warn: "#F2B705"
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property color surface: Color.popups.background
   readonly property color track: Style.selectedFillFor(foreground, Color.accent)
@@ -34,12 +33,14 @@ Panel {
   // using `providers` (enabled-only, unchanged) so a provider hidden from
   // the bar is still reachable from the panel.
   readonly property var barProviders: usage.barProviders
-  // "All" should mean all providers are represented, not that an expanding
-  // provider set is allowed to consume the entire bar. Three full meter
-  // groups still fit beside normal Omarchy widgets; any remaining providers
-  // are represented by the explicit +N affordance, whose click falls through
-  // to the widget button and opens the complete switcher below.
-  readonly property int maxBarProviderSlots: 3
+  // How many providers show in the bar is the person's own choice — however
+  // many they've marked Fixed, plus however many Cycle slots they've set —
+  // not a separate hardcoded ceiling on top of that. This mirrors Main.qml's
+  // barSlotLimit (effectively uncapped) so nothing gets trimmed a second
+  // time here; the +N affordance still exists purely as a fallback for the
+  // otherwise-unreachable case of exceeding the total number of providers
+  // the plugin ships collectors for.
+  readonly property int maxBarProviderSlots: 999
   readonly property var visibleBarProviders: barProviders.slice(0, maxBarProviderSlots)
   readonly property int hiddenBarProviderCount: Math.max(0, barProviders.length - visibleBarProviders.length)
   // The selection follows the provider, not the slot it happens to sit in: a
@@ -160,6 +161,20 @@ Panel {
     return !providers[id] || providers[id].showInBar !== false
   }
 
+  // Icon / Icon + % / Full. Without an explicit per-provider choice, the
+  // default follows the provider's own Bar slot role rather than one global
+  // setting: Fixed is always on screen and earns the full meter+percent,
+  // while Cycle only holds a slot briefly, so a compact mark reads better
+  // during the rotation. This also means the two "cycle" concepts in this
+  // panel stay separate — rotating *which* providers occupy the bar (Bar
+  // slot: Cycle) never gets confused with how much any one of them shows.
+  function providerSettingLabelMode(id) {
+    var providers = usage.settings && usage.settings.providers ? usage.settings.providers : {}
+    var mode = providers[id] ? providers[id].barLabelMode : undefined
+    if (mode === "icon" || mode === "iconPercent" || mode === "full") return mode
+    return providerSettingBarRole(id) === "cycle" ? "iconPercent" : "full"
+  }
+
   function providerRolesConfigured() {
     var providers = usage.settings && usage.settings.providers ? usage.settings.providers : {}
     for (var id in providers) {
@@ -211,7 +226,8 @@ Panel {
         providerName: String(record.name || record.id),
         enabled: providerSettingEnabled(id),
         showInBar: providerSettingShowInBar(id),
-        barRole: providerSettingBarRole(id)
+        barRole: providerSettingBarRole(id),
+        labelMode: providerSettingLabelMode(id)
       })
     }
     var configured = usage.settings && usage.settings.providers ? usage.settings.providers : {}
@@ -223,11 +239,11 @@ Panel {
         providerName: pid,
         enabled: providerSettingEnabled(pid),
         showInBar: providerSettingShowInBar(pid),
-        barRole: providerSettingBarRole(pid)
+        barRole: providerSettingBarRole(pid),
+        labelMode: providerSettingLabelMode(pid)
       })
     }
-    rows.sort(function(a, b) { return a.providerId < b.providerId ? -1 : (a.providerId > b.providerId ? 1 : 0) })
-    return rows
+    return Aggregate.applyProviderOrder(rows, usage.providerOrder)
   }
 
   // `percent` here is the 0-1 fraction used throughout the panel's data
@@ -665,6 +681,23 @@ Panel {
     return candidates
   }
 
+  function iconCandidatesForBarProvider(p) {
+    if (!p) return []
+    var id = String(p.providerId || "")
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return []
+    var assets = root.providerIconAssets[id]
+    if (!assets) return []
+    var candidates = []
+    // The bar can swap its foreground when a transparent/hover state is
+    // active. Match the monochrome mark to that live color, rather than to
+    // the popup surface used by the panel copy of the same mark.
+    var liveForeground = bar ? (bar.barForeground || bar.foreground) : foreground
+    if (colorLuminance(liveForeground) < 0.5 && assets.lightAsset)
+      candidates.push(Qt.resolvedUrl("assets/" + assets.lightAsset))
+    if (assets.defaultAsset) candidates.push(Qt.resolvedUrl("assets/" + assets.defaultAsset))
+    return candidates
+  }
+
   // Companion to iconCandidatesForProvider: the fraction of its box a mark's
   // artwork should occupy, so brand marks with less internal padding than
   // the rest of the set don't read as larger. See providerIconAssets.
@@ -780,30 +813,55 @@ Panel {
   // ------------------------------------------------------- notifications
   //
   // Opt-in (usage.notificationsEnabled, off by default) and quiet: one
-  // notification per provider the moment its primary window first reaches
-  // Warn, and one more if it goes on to reach Critical — never a repeat on
-  // every refresh while it sits there. `notifiedThresholds` remembers the
-  // highest severity already announced for a given provider+window (keyed
-  // by resetAt), so a new billing/session window naturally rearms it.
-  readonly property var severityRank: ({ ok: 0, warn: 1, critical: 2 })
-  property var notifiedThresholds: ({})
+  // notification when a provider crosses Warn, and one more if it goes on to
+  // cross Critical — never a repeat on every refresh while it sits in the
+  // same band. The first sample for a provider/window establishes a quiet
+  // baseline, so a shell restart does not repeat an alert for usage that was
+  // already high. The last observed severity is keyed by provider and billing
+  // window, so a new session/period naturally rearms it. Balance providers
+  // have no reset timestamp; their current severity is enough to rearm after
+  // a top-up brings the balance back below Warn.
+  property var notificationSeverities: ({})
 
-  onProvidersChanged: if (usage.notificationsEnabled) checkThresholdNotifications()
+  onProvidersChanged: checkThresholdNotifications()
+  onWarnThresholdPctChanged: checkThresholdNotifications()
+  onCriticalThresholdPctChanged: checkThresholdNotifications()
+
+  Connections {
+    target: usage
+    function onNotificationsEnabledChanged() {
+      if (usage.notificationsEnabled) root.checkThresholdNotifications()
+      else root.notificationQueue = []
+    }
+  }
+
+  function notificationSignal(p) {
+    if (!p) return null
+    var window = providerPrimaryWindow(p)
+    if (window) return {
+      title: window.title,
+      resetAt: window.resetAt,
+      kind: "limit"
+    }
+    if (p.balance && Number(p.balance.funded) > 0) return {
+      title: "Balance",
+      resetAt: "",
+      kind: "balance"
+    }
+    return null
+  }
 
   function checkThresholdNotifications() {
     for (var i = 0; i < root.providers.length; i++) {
       var p = root.providers[i]
-      var window = providerPrimaryWindow(p)
-      if (!window) continue
+      var signal = notificationSignal(p)
+      if (!signal) continue
       var severity = providerSeverity(p)
-      var rank = root.severityRank[severity] || 0
-      if (rank < 1) continue
-      var key = String(p.providerId || "") + "|" + window.resetAt
-      var prevRank = root.severityRank[root.notifiedThresholds[key]] || 0
-      if (rank > prevRank) {
-        root.notifiedThresholds[key] = severity
-        root.queueNotification(p, window, severity)
-      }
+      var key = String(p.providerId || "") + "|" + signal.kind + "|" + signal.resetAt
+      var transition = Thresholds.notificationTransition(root.notificationSeverities[key], severity)
+      root.notificationSeverities[key] = transition.severity
+      if (usage.notificationsEnabled && transition.notification !== "")
+        root.queueNotification(p, signal, transition.notification)
     }
   }
 
@@ -826,12 +884,21 @@ Panel {
     }
   }
 
-  function queueNotification(p, window, severity) {
+  // A manual, always-available way to confirm the notify-send pipeline
+  // itself works — independent of notificationsEnabled and of waiting for a
+  // real Warn/Critical crossing, which may be rare or slow to hit.
+  function sendTestNotification() {
+    root.notificationQueue.push(["notify-send", "--app-name=Agent Usage Plus", "--urgency=normal",
+      "Agent Usage Plus", "Test notification — if you see this, notifications are working."])
+    root.pumpNotificationQueue()
+  }
+
+  function queueNotification(p, signal, severity) {
     var name = String((p && p.providerName) || (p && p.providerId) || "Provider")
     var pct = providerPercentText(p)
     var urgency = severity === "critical" ? "critical" : "normal"
     var summary = name + " — " + (severity === "critical" ? "critical" : "warning")
-    var body = window.title + " at " + pct
+    var body = signal.title + " at " + pct
     root.notificationQueue.push(["notify-send", "--app-name=Agent Usage Plus", "--urgency=" + urgency, summary, body])
     root.pumpNotificationQueue()
   }
@@ -911,7 +978,13 @@ Panel {
   component ProviderMark: Item {
     id: providerMark
     required property var provider
-    property var candidates: root.iconCandidatesForProvider(provider, root.surface)
+    // Bar marks follow the bar's live foreground (including transparent-bar
+    // and hover inversion updates). Panel marks continue to follow the popup
+    // surface, which is a separate visual context.
+    property bool barMark: false
+    property var candidates: barMark
+      ? root.iconCandidatesForBarProvider(provider)
+      : root.iconCandidatesForProvider(provider, root.surface)
     property string candidatesKey: candidates.join("\n")
     property int candidateIndex: 0
     property real iconScale: root.iconScaleForProvider(provider)
@@ -928,8 +1001,11 @@ Panel {
       // Rasterize the SVG directly at its on-screen size (rather than at
       // whatever default size QtSvg picks and then bilinearly scaling that
       // pixmap) — without this, marks read as soft/blurry, worse the larger
-      // the box or the higher the screen's device pixel ratio.
-      sourceSize: Qt.size(width, height)
+      // the box or the higher the screen's device pixel ratio. Decode at
+      // physical pixels, matching Tray.qml/Menu.qml/NotificationCard.qml:
+      // logical sourceSize still leaves marks soft on HiDPI outputs.
+      sourceSize.width: Math.round(width * Screen.devicePixelRatio)
+      sourceSize.height: Math.round(height * Screen.devicePixelRatio)
       smooth: true
       mipmap: true
       source: providerMark.candidateIndex < providerMark.candidates.length ? providerMark.candidates[providerMark.candidateIndex] : ""
@@ -982,9 +1058,10 @@ Panel {
     }
   }
 
-  // Up to three label+meter pairs per enabled, reporting, showInBar-visible
-  // provider sit side by side. Further providers are represented by +N below
-  // rather than making the bar progressively wider as support grows.
+  // Label+meter pairs for enabled, reporting, showInBar-visible providers sit
+  // side by side. The layout helper has a safety ceiling equal to the bundled
+  // collector count; any future overflow is represented by +N below rather
+  // than making the bar progressively wider without bound.
   Row {
     id: providersRow
     anchors.centerIn: button
@@ -1010,11 +1087,13 @@ Panel {
 
           ProviderMark {
             anchors.verticalCenter: parent.verticalCenter
-            // The bar mark must stay legible at a glance. This is deliberately
-            // larger than selector marks, whose labels/tooltips carry context.
-            width: Style.space(20)
+            // Between the shell's own plain tray badge (Style.space(12)) and
+            // the original Style.space(20), which read oversized next to the
+            // caption-sized percent text beside it.
+            width: Style.space(16)
             height: width
             provider: providerGroup.modelData
+            barMark: true
           }
 
           CheckpointMeter {
@@ -1023,12 +1102,13 @@ Panel {
             value: root.providerPercent(providerGroup.modelData)
             secondaryValue: root.providerSecondaryPercent(providerGroup.modelData)
             severity: root.providerSeverity(providerGroup.modelData)
-            visible: usage.barLabelMode === "full" && root.providerPercent(providerGroup.modelData) >= 0
+            visible: root.providerSettingLabelMode(providerGroup.modelData.providerId) === "full"
+              && root.providerPercent(providerGroup.modelData) >= 0
           }
 
           Text {
             anchors.verticalCenter: parent.verticalCenter
-            visible: usage.barLabelMode !== "icon"
+            visible: root.providerSettingLabelMode(providerGroup.modelData.providerId) !== "icon"
             text: root.providerPercentText(providerGroup.modelData)
             color: root.foreground
             font.family: root.fontFamily
@@ -1254,7 +1334,10 @@ Panel {
                   anchors.centerIn: parent
                   width: Math.round(parent.width * heroMark.iconScale)
                   height: Math.round(parent.height * heroMark.iconScale)
-                  sourceSize: Qt.size(width, height)
+                  // See ProviderMark's bar-scale Image: decode at physical
+                  // pixels so the hero mark stays crisp on HiDPI outputs too.
+                  sourceSize.width: Math.round(width * Screen.devicePixelRatio)
+                  sourceSize.height: Math.round(height * Screen.devicePixelRatio)
                   smooth: true
                   mipmap: true
                   source: heroMark.candidateIndex < heroMark.candidates.length ? heroMark.candidates[heroMark.candidateIndex] : ""
@@ -1313,6 +1396,35 @@ Panel {
             columns: columnCount
             height: rowCount * chipSize + Math.max(0, rowCount - 1) * spacing
 
+            // Reordering never moves a real grid child or touches the model
+            // mid-drag — both are exactly what made the previous attempt
+            // leave marks floating outside the grid. Only a separate ghost
+            // item (below) follows the pointer; the real chips stay exactly
+            // where the Grid put them the whole time, so there is nothing
+            // for the Grid to "forget" to reposition afterwards. dragFrom is
+            // the chip actually being moved; dragTo is whichever chip's slot
+            // the pointer is currently over (or -1 over empty space) — read
+            // once, on release, to compute the new order.
+            property int dragFromIndex: -1
+            property int dragToIndex: -1
+
+            function updateDragTarget(offsetX, offsetY) {
+              var fromItem = providerChipRepeater.itemAt(dragFromIndex)
+              if (!fromItem) { dragToIndex = -1; return }
+              var cx = fromItem.x + offsetX + fromItem.width / 2
+              var cy = fromItem.y + offsetY + fromItem.height / 2
+              var best = -1
+              for (var i = 0; i < providerChipRepeater.count; i++) {
+                var item = providerChipRepeater.itemAt(i)
+                if (!item) continue
+                if (cx >= item.x && cx < item.x + item.width && cy >= item.y && cy < item.y + item.height) {
+                  best = i
+                  break
+                }
+              }
+              dragToIndex = best
+            }
+
             Repeater {
               id: providerChipRepeater
               model: root.providers
@@ -1324,7 +1436,7 @@ Panel {
 
                 width: providerSwitch.chipSize
                 height: providerSwitch.chipSize
-                tooltipText: String(modelData && (modelData.providerName || modelData.providerId) || "Provider")
+                tooltipText: String(modelData && (modelData.providerName || modelData.providerId) || "Provider") + " — drag to reorder"
                 selected: index === root.providerIndex
                 hasCursor: root.cursorActive && index === root.providerIndex
                 bordered: false
@@ -1336,6 +1448,55 @@ Panel {
                 rightPadding: 0
                 topPadding: 0
                 bottomPadding: 0
+                // The chip being lifted fades in place (it does not move);
+                // whichever chip the drag currently hovers gets an accent
+                // ring, so it's clear where letting go will drop it.
+                opacity: providerSwitch.dragFromIndex === index ? 0.35 : 1.0
+
+                Rectangle {
+                  anchors.fill: parent
+                  visible: providerSwitch.dragFromIndex >= 0
+                    && providerSwitch.dragToIndex === index
+                    && providerSwitch.dragToIndex !== providerSwitch.dragFromIndex
+                  color: "transparent"
+                  radius: Style.cornerRadius
+                  border.width: 2
+                  border.color: Color.accent
+                }
+
+                // A plain click still selects the provider (see the Button's
+                // own MouseArea below) — this only takes over once the
+                // pointer moves past the platform's drag threshold, so a tap
+                // and a drag never fight over the same gesture. target: null
+                // keeps it from moving providerChip itself; see dragGhost.
+                DragHandler {
+                  id: chipDrag
+                  target: null
+                  onActiveChanged: {
+                    if (active) {
+                      root.cursorActive = true
+                      providerSwitch.dragFromIndex = providerChip.index
+                      providerSwitch.dragToIndex = providerChip.index
+                      dragGhost.begin(providerChip)
+                      return
+                    }
+                    var fromIndex = providerSwitch.dragFromIndex
+                    var toIndex = providerSwitch.dragToIndex
+                    providerSwitch.dragFromIndex = -1
+                    providerSwitch.dragToIndex = -1
+                    dragGhost.visible = false
+                    if (toIndex < 0 || toIndex === fromIndex) return
+                    var ids = root.providers.map(function(p) { return p.providerId })
+                    var moved = ids.splice(fromIndex, 1)
+                    ids.splice(toIndex, 0, moved[0])
+                    usage.setProviderOrder(ids)
+                  }
+                  onTranslationChanged: {
+                    if (!active) return
+                    providerSwitch.updateDragTarget(translation.x, translation.y)
+                    dragGhost.follow(translation.x, translation.y)
+                  }
+                }
 
                 ProviderMark {
                   anchors.centerIn: parent
@@ -1351,6 +1512,57 @@ Panel {
                 }
                 onHovered: function(isHovered) { if (isHovered) root.cursorActive = true }
               }
+            }
+          }
+
+          Text {
+            visible: providerSwitch.visible
+            width: parent.width
+            text: "Drag to reorder"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            horizontalAlignment: Text.AlignHCenter
+          }
+
+          // Floating copy of whichever mark is being dragged, parented at the
+          // panel's top level (not inside providerSwitch's Grid) so it can
+          // render above every sibling section regardless of where the
+          // switcher sits, positioned by mapping the stationary source
+          // chip's coordinates into root's space rather than by being moved
+          // as a grid child itself.
+          Item {
+            id: dragGhost
+            parent: root
+            z: 1000
+            visible: false
+            width: 0
+            height: 0
+
+            property var provider: null
+
+            function begin(chipItem) {
+              width = chipItem.width
+              height = chipItem.height
+              provider = chipItem.modelData
+              visible = true
+              follow(0, 0)
+            }
+
+            function follow(offsetX, offsetY) {
+              var source = providerChipRepeater.itemAt(providerSwitch.dragFromIndex)
+              if (!source) return
+              var origin = source.mapToItem(root, 0, 0)
+              x = origin.x + offsetX
+              y = origin.y + offsetY
+            }
+
+            ProviderMark {
+              anchors.centerIn: parent
+              width: Math.min(parent.width - Style.space(10), Style.space(24))
+              height: width
+              provider: dragGhost.provider
+              opacity: 0.92
             }
           }
 
@@ -1998,11 +2210,15 @@ Panel {
               readonly property real contentWidth: width - Style.space(28)
               readonly property real providerColumnWidth: Math.min(300, Math.max(210, contentWidth * 0.36))
               readonly property real controlColumnWidth: contentWidth - providerColumnWidth - Style.space(18)
-              readonly property real controlCellWidth: (controlColumnWidth - Style.space(24)) / 2
+              readonly property real controlCellWidth: (controlColumnWidth - Style.space(24) * 2) / 3
               readonly property var barRoleOptions: ["off", "fixed", "cycle"]
               readonly property var barRoleLabels: ({ off: "Off", fixed: "Fixed", cycle: "Cycle" })
-              readonly property real barRoleButtonWidth: Math.max(Style.space(42),
+              readonly property real barRoleButtonWidth: Math.max(Style.space(38),
                 (controlCellWidth - Style.space(8)) / barRoleOptions.length)
+              readonly property var labelModeOptions: ["icon", "iconPercent", "full"]
+              readonly property var labelModeLabels: ({ icon: "Icon", iconPercent: "Icon+%", full: "Full" })
+              readonly property real labelModeButtonWidth: Math.max(Style.space(38),
+                (controlCellWidth - Style.space(8)) / labelModeOptions.length)
 
               Row {
                 x: Style.space(14)
@@ -2013,7 +2229,7 @@ Panel {
                 Item { width: providerSettingsList.providerColumnWidth; height: parent.height }
 
                 Repeater {
-                  model: ["Enabled", "Bar slot"]
+                  model: ["Enabled", "Bar slot", "Bar shows"]
 
                   Item {
                     required property string modelData
@@ -2120,6 +2336,9 @@ Panel {
                                 required property string modelData
                                 width: providerSettingsList.barRoleButtonWidth
                                 text: providerSettingsList.barRoleLabels[modelData]
+                                tooltipText: modelData === "off" ? "Not shown in the bar"
+                                  : modelData === "fixed" ? "Always shown in the bar"
+                                  : "Rotates through the bar's Cycle slots"
                                 selected: providerSettingsRow.modelData.barRole === modelData
                                 bordered: true
                                 foreground: root.foreground
@@ -2127,6 +2346,43 @@ Panel {
                                 fontSize: Style.font.caption
                                 verticalPadding: Style.space(4)
                                 onClicked: usage.setProviderBarRole(
+                                  providerSettingsRow.modelData.providerId, modelData)
+                              }
+                            }
+                          }
+                        }
+
+                        Item {
+                          width: providerSettingsList.controlCellWidth
+                          height: parent.height
+                          // Only matters once this provider actually has a
+                          // bar slot — same dimming rule as Bar slot's own
+                          // buttons above, just gated on the role instead of
+                          // Enabled, since a Fixed/Cycle role is what makes
+                          // this provider's own bar mark exist at all.
+                          opacity: providerSettingsRow.modelData.barRole === "off" ? 0.5 : 1.0
+
+                          Row {
+                            anchors.centerIn: parent
+                            spacing: Style.space(4)
+
+                            Repeater {
+                              model: providerSettingsList.labelModeOptions
+
+                              Button {
+                                required property string modelData
+                                width: providerSettingsList.labelModeButtonWidth
+                                text: providerSettingsList.labelModeLabels[modelData]
+                                tooltipText: modelData === "icon" ? "Just the mark"
+                                  : modelData === "iconPercent" ? "Mark and the percent"
+                                  : "Mark, percent, and the meter"
+                                selected: providerSettingsRow.modelData.labelMode === modelData
+                                bordered: true
+                                foreground: root.foreground
+                                fontFamily: root.fontFamily
+                                fontSize: Style.font.caption
+                                verticalPadding: Style.space(4)
+                                onClicked: usage.setProviderLabelMode(
                                   providerSettingsRow.modelData.providerId, modelData)
                               }
                             }
@@ -2163,9 +2419,6 @@ Panel {
                 anchors.margins: Style.space(14)
                 spacing: Style.space(10)
 
-                readonly property var barLabelOptions: ["icon", "iconPercent", "full"]
-                readonly property var barLabelLabels: ({ icon: "Icon", iconPercent: "Icon + %", full: "Full" })
-
                 // Draft copies of the numeric fields below, committed only on
                 // Save. Binding a SpinBox's `value` straight to a setting
                 // meant every settings write (even to an unrelated field, or
@@ -2185,6 +2438,12 @@ Panel {
                   || draftRefreshIntervalSec !== usage.refreshIntervalSec
                   || draftWarnThresholdPct !== root.warnThresholdPct
                   || draftCriticalThresholdPct !== root.criticalThresholdPct
+
+                // A warn band at or above critical collapses to nothing
+                // meaningful (severityFor's own guard silently favors
+                // critical) — catch it here instead, before Save, where a
+                // person editing the number can actually see why it's stuck.
+                readonly property bool draftThresholdsValid: draftWarnThresholdPct < draftCriticalThresholdPct
 
                 function resyncDrafts() {
                   draftCycleSlots = usage.barCycleSlots
@@ -2209,58 +2468,6 @@ Panel {
                   font.pixelSize: Style.font.body
                 }
 
-                Text {
-                  width: parent.width
-                  visible: root.hasCycleSlotConfigured()
-                  text: "Fixed stays visible. Cycle rotates providers marked Cycle."
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  wrapMode: Text.WordWrap
-                }
-
-                Row {
-                  spacing: Style.space(10)
-
-                  Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "Bar labels"
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
-                  }
-
-                  Row {
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: Style.space(4)
-
-                    Repeater {
-                      model: behaviourContent.barLabelOptions
-
-                      Button {
-                        required property string modelData
-                        text: behaviourContent.barLabelLabels[modelData]
-                        selected: usage.barLabelMode === modelData
-                        bordered: true
-                        foreground: root.foreground
-                        fontFamily: root.fontFamily
-                        fontSize: Style.font.caption
-                        verticalPadding: Style.space(4)
-                        onClicked: usage.setBarLabelMode(modelData)
-                      }
-                    }
-                  }
-                }
-
-                Text {
-                  width: parent.width
-                  text: "Icon shows just the mark; Icon + % adds the number; Full also draws the meter."
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  wrapMode: Text.WordWrap
-                }
-
                 Grid {
                   id: behaviourGrid
                   width: parent.width
@@ -2270,7 +2477,11 @@ Panel {
                   readonly property real cellWidth: Math.floor((width - columnSpacing * (columns - 1)) / columns)
 
                   NumberField {
-                    visible: root.hasCycleSlotConfigured()
+                    // Disabled rather than hidden when unused, so the grid's
+                    // shape never changes as providers switch bar roles —
+                    // see the hint text above for why.
+                    enabled: root.hasCycleSlotConfigured()
+                    opacity: enabled ? 1.0 : 0.5
                     width: behaviourGrid.cellWidth
                     label: "Cycle slots"
                     value: behaviourContent.draftCycleSlots
@@ -2284,7 +2495,8 @@ Panel {
                   }
 
                   NumberField {
-                    visible: root.hasCycleSlotConfigured()
+                    enabled: root.hasCycleSlotConfigured()
+                    opacity: enabled ? 1.0 : 0.5
                     width: behaviourGrid.cellWidth
                     label: "Rotate (s)"
                     value: behaviourContent.draftCycleIntervalSec
@@ -2339,8 +2551,13 @@ Panel {
 
                 Text {
                   width: parent.width
-                  text: "Warn colors the meter early; Critical marks it urgent. Type an exact value or use the arrows, then Save."
-                  color: root.dim
+                  // One fixed line, never appearing/disappearing: it swaps
+                  // between the normal hint and the validation error so nothing
+                  // below it jumps when Warn/Critical cross each other.
+                  text: behaviourContent.draftThresholdsValid
+                    ? "Warn colors the meter early; Critical marks it urgent. Type an exact value or use the arrows, then Save applies all five fields above together."
+                    : "Warn must be lower than Critical — Save is disabled until that's fixed."
+                  color: behaviourContent.draftThresholdsValid ? root.dim : root.urgent
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                   wrapMode: Text.WordWrap
@@ -2350,12 +2567,20 @@ Panel {
                   spacing: Style.space(10)
 
                   Button {
+                    anchors.verticalCenter: parent.verticalCenter
                     text: "Save"
-                    enabled: behaviourContent.settingsDirty
+                    enabled: behaviourContent.settingsDirty && behaviourContent.draftThresholdsValid
+                    // Filled/accented while there's something to commit, so
+                    // the one control that actually applies these five
+                    // fields reads as the primary action, not a peer of the
+                    // plain bordered field controls above it.
+                    selected: enabled
                     bordered: true
                     foreground: root.foreground
+                    accent: Color.accent
                     fontFamily: root.fontFamily
                     fontSize: Style.font.caption
+                    horizontalPadding: Style.space(12)
                     verticalPadding: Style.space(4)
                     onClicked: behaviourContent.saveDrafts()
                   }
@@ -2372,7 +2597,7 @@ Panel {
                 // Notifications (opt-in, off by default) — a single
                 // system notification the moment a provider first crosses
                 // Warn or Critical, not a repeat every refresh. See
-                // notifyForThresholdCrossings() in this file.
+                // checkThresholdNotifications() in this file.
                 Row {
                   spacing: Style.space(10)
 
@@ -2390,6 +2615,18 @@ Panel {
                     color: root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall
+                  }
+
+                  Button {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "Test"
+                    tooltipText: "Send one notification now, to confirm your system shows it — independent of the toggle above."
+                    bordered: true
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.caption
+                    verticalPadding: Style.space(4)
+                    onClicked: root.sendTestNotification()
                   }
                 }
               }

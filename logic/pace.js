@@ -25,16 +25,16 @@ function tokenLimitValue(limit) {
 }
 
 // `projectExhaustion(tokensByDay, limit, windowResetAt[, nowMs])` returns
-// null unless it has a real token quota, at least one history point, and a
-// future reset. It forecasts the next day's burn with a least-squares trend:
-// flat history stays flat, rising history increases, falling history floors
-// at zero. With one day the only defensible forecast is that day's pace.
+// null unless it has a real token quota, at least two history points, a
+// positive least-squares trend, and a future reset. Flat, decreasing, and
+// one-day history deliberately withhold a projection rather than presenting
+// an observed value as a forecast.
 function projectExhaustion(tokensByDay, limit, windowResetAt, nowMs) {
   var days = Array.isArray(tokensByDay) ? tokensByDay : []
   var tokenLimit = tokenLimitValue(limit)
   var resetMs = ms(windowResetAt)
   var now = nowMs === undefined ? Date.now() : Number(nowMs)
-  if (!tokenLimit || !isFinite(resetMs) || !isFinite(now) || resetMs <= now || !days.length) return null
+  if (!tokenLimit || !isFinite(resetMs) || !isFinite(now) || resetMs <= now || days.length < 2) return null
 
   var values = []
   var usedTokens = 0
@@ -45,23 +45,20 @@ function projectExhaustion(tokensByDay, limit, windowResetAt, nowMs) {
   }
 
   var dailyTokens
-  if (values.length === 1) {
-    dailyTokens = values[0]
-  } else {
-    var meanX = (values.length - 1) / 2
-    var meanY = usedTokens / values.length
-    var numerator = 0
-    var denominator = 0
-    for (var j = 0; j < values.length; j++) {
-      var dx = j - meanX
-      numerator += dx * (values[j] - meanY)
-      denominator += dx * dx
-    }
-    var slope = denominator ? numerator / denominator : 0
-    // Predict the first unseen day (x = n), not "mean plus n slopes".
-    // The latter would double-count the x offset whenever n > 1.
-    dailyTokens = Math.max(0, meanY + slope * (values.length - meanX))
+  var meanX = (values.length - 1) / 2
+  var meanY = usedTokens / values.length
+  var numerator = 0
+  var denominator = 0
+  for (var j = 0; j < values.length; j++) {
+    var dx = j - meanX
+    numerator += dx * (values[j] - meanY)
+    denominator += dx * dx
   }
+  var slope = denominator ? numerator / denominator : 0
+  if (!(slope > 0)) return null
+  // Predict the first unseen day (x = n), not "mean plus n slopes".
+  // The latter would double-count the x offset whenever n > 1.
+  dailyTokens = Math.max(0, meanY + slope * (values.length - meanX))
   if (!(dailyTokens > 0)) return null
 
   var remainingTokens = Math.max(0, tokenLimit - usedTokens)
