@@ -93,7 +93,7 @@ reload changed QML. After a meaningful UI batch, preview the branch from the
 live checkout and restart the supervised shell:
 
 ```sh
-cd ~/.dotfiles/agents/.config/omarchy/plugins/io.github.viganogabriele.agent-usage-plus
+cd <live-plugin-dir>
 git fetch local-dev <branch>
 git checkout -B preview <fetched-commit-or-FETCH_HEAD>
 omarchy restart shell
@@ -105,6 +105,8 @@ hover states. Check the user journal for plugin errors before handoff:
 ```sh
 journalctl --user --since "1 minute ago" --no-pager | grep -iE "error|agent-usage"
 ```
+
+Replace `<live-plugin-dir>` with the checkout used for the local preview.
 
 A worktree with uncommitted changes can be previewed the same way without a
 commit — `cp` the changed `.qml`/`.js` files straight over the live
