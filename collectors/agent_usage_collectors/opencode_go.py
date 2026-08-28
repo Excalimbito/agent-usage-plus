@@ -41,7 +41,12 @@ def read_key() -> str | None:
         data = json.loads(auth_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    key = data.get(PROVIDER_ID_IN_DB, {}).get("key") if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        return None
+    entry = data.get(PROVIDER_ID_IN_DB)
+    if not isinstance(entry, dict):
+        return None
+    key = entry.get("key")
     return key.strip() if isinstance(key, str) and key.strip() else None
 
 
@@ -116,6 +121,8 @@ def stats_from_rows(rows: list[tuple[Any, ...]]) -> dict[str, Any]:
     today_tokens = 0
 
     for session_id, time_created, model, input_tokens, output_tokens, cache_read, cache_write in rows:
+        if time_created is None:
+            continue
         model = model or "unknown"
         day = datetime.fromtimestamp(int(time_created) / 1000, tz=timezone.utc).date().isoformat()
         total = int(input_tokens) + int(output_tokens) + int(cache_read) + int(cache_write)
@@ -182,13 +189,17 @@ def collect_limits(key: str) -> dict[str, Any]:
     usage = payload.get("usage")
     if not isinstance(usage, dict):
         raise ValueError("OpenCode Go usage endpoint returned an unexpected response")
-    return {
-        "limits": [
-            limit_window(usage, "rolling", "Session"),
-            limit_window(usage, "weekly", "Weekly"),
-            limit_window(usage, "monthly", "Monthly"),
-        ]
-    }
+
+    limits = []
+    for field, label in (
+        ("rolling", "Session"),
+        ("weekly", "Weekly"),
+        ("monthly", "Monthly"),
+    ):
+        window = usage.get(field)
+        if isinstance(window, dict):
+            limits.append(limit_window(usage, field, label))
+    return {"limits": limits}
 
 
 def base_record() -> dict[str, Any]:
@@ -208,6 +219,12 @@ def collect() -> dict[str, Any]:
     stats = collect_local_stats()
     record.update(stats)
     record["ready"] = stats.get("totalPrompts", 0) > 0
+
+    if stats.get("dbUnavailable"):
+        record["usageStatusText"] = "Local database locked — retrying"
+        record["authHelpText"] = (
+            "OpenCode holds the database open; stats will refresh when the lock is released."
+        )
 
     key = read_key()
     if not key:
